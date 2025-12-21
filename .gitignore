@@ -1,0 +1,27 @@
+# Data inputs/outputs
+/data/
+/spatial/
+/cleandata/
+/rawdata*/
+*.h5ad
+*.zarr
+*.qs
+*.rds
+
+# Logs
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+
+# R
+.Rhistory
+.RData
+.Rproj.user/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Editor
+.vscode/
