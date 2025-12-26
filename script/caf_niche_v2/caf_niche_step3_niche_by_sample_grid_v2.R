@@ -21,6 +21,11 @@ PLOT_BG_SIZE <- 0.02
 PLOT_BG_ALPHA <- 0.08
 PLOT_FG_SIZE <- 0.05
 PLOT_FG_ALPHA <- 0.9
+FONT_BASE <- 9
+FONT_TITLE <- 10
+FONT_HEADER <- 11
+FONT_LEGEND_TITLE <- 10
+FONT_LEGEND_TEXT <- 9
 
 get_root_dir <- function() {
   args <- commandArgs(trailingOnly = FALSE)
@@ -114,15 +119,16 @@ make_legends <- function(subtype_levels, subtype_colors, celltype_levels, cellty
     data.frame(x = 1, y = seq_along(names(subtype_colors)), subtype = names(subtype_colors)),
     aes(x = x, y = y, color = subtype)
   ) +
-    geom_point(size = 3.2) +
-    theme_void(base_size = 12) +
+    geom_point(size = 2.6) +
+    theme_void(base_size = FONT_BASE) +
     theme(
       legend.position = "bottom",
       legend.justification = "left",
       legend.box.just = "left",
       legend.margin = ggplot2::margin(0, 0, 0, 0),
       legend.box.margin = ggplot2::margin(0, 0, 0, 0),
-      legend.text.align = 0
+      legend.text.align = 0,
+      legend.text = element_text(size = FONT_LEGEND_TEXT)
     ) +
     scale_color_manual(values = subtype_colors, drop = FALSE) +
     guides(color = guide_legend(title = NULL, nrow = 1, override.aes = list(alpha = 1)))
@@ -133,29 +139,30 @@ make_legends <- function(subtype_levels, subtype_colors, celltype_levels, cellty
     data.frame(x = 1, y = seq_along(celltype_levels), cell_type = celltype_levels),
     aes(x = x, y = y, color = cell_type)
   ) +
-    geom_point(size = 3.2) +
-    theme_void(base_size = 12) +
+    geom_point(size = 2.6) +
+    theme_void(base_size = FONT_BASE) +
     theme(
       legend.position = "bottom",
       legend.justification = "left",
       legend.box.just = "left",
       legend.margin = ggplot2::margin(0, 0, 0, 0),
       legend.box.margin = ggplot2::margin(0, 0, 0, 0),
-      legend.text.align = 0
+      legend.text.align = 0,
+      legend.text = element_text(size = FONT_LEGEND_TEXT)
     ) +
     scale_color_manual(values = celltype_colors, breaks = celltype_levels, labels = celltype_labels, drop = FALSE) +
     guides(color = guide_legend(title = NULL, nrow = 1, override.aes = list(alpha = 1)))
   leg_celltype <- cowplot::get_legend(p2)
 
   subtype_block <- cowplot::plot_grid(
-    cowplot::ggdraw() + cowplot::draw_label("CAFsubtype", x = 0, hjust = 0, fontface = "bold", size = 12),
+    cowplot::ggdraw() + cowplot::draw_label("CAFsubtype", x = 0, hjust = 0, fontface = "bold", size = FONT_LEGEND_TITLE),
     cowplot::ggdraw() + cowplot::draw_grob(leg_subtype, x = 0, y = 1, hjust = 0, vjust = 1),
     ncol = 1,
     rel_heights = c(0.25, 1)
   )
 
   celltype_block <- cowplot::plot_grid(
-    cowplot::ggdraw() + cowplot::draw_label("celltype", x = 0, hjust = 0, fontface = "bold", size = 12),
+    cowplot::ggdraw() + cowplot::draw_label("celltype", x = 0, hjust = 0, fontface = "bold", size = FONT_LEGEND_TITLE),
     cowplot::ggdraw() + cowplot::draw_grob(leg_celltype, x = 0, y = 1, hjust = 0, vjust = 1),
     ncol = 1,
     rel_heights = c(0.25, 1)
@@ -166,10 +173,10 @@ make_legends <- function(subtype_levels, subtype_colors, celltype_levels, cellty
 
 make_blank_panel <- function(title = "") {
   ggplot() +
-    theme_void(base_size = 12) +
+    theme_void(base_size = FONT_BASE) +
     theme(
       plot.title.position = "plot",
-      plot.title = element_text(hjust = 0, face = "bold", size = 12),
+      plot.title = element_text(hjust = 0, face = "bold", size = FONT_TITLE),
       plot.margin = ggplot2::margin(0, 0, 0, 0),
       aspect.ratio = 1
     ) +
@@ -205,9 +212,9 @@ plot_subtype_panel <- function(df_bg, caf_df, subtype_levels, subtype_colors, ti
       alpha = PLOT_FG_ALPHA
     ) +
     scale_color_manual(values = subtype_colors, breaks = subtype_levels, drop = FALSE) +
-    theme_void(base_size = 12) +
+    theme_void(base_size = FONT_BASE) +
     theme(
-      plot.title = element_text(face = "bold", hjust = 0, size = 12),
+      plot.title = element_text(face = "bold", hjust = 0, size = FONT_TITLE),
       plot.margin = ggplot2::margin(0, 0, 0, 0),
       legend.position = "none",
       aspect.ratio = 1
@@ -232,9 +239,9 @@ plot_neighbor_panel <- function(df_bg, niche_df, celltype_colors, title, xlim, y
       alpha = PLOT_FG_ALPHA
     ) +
     scale_color_manual(values = celltype_colors, drop = FALSE) +
-    theme_void(base_size = 12) +
+    theme_void(base_size = FONT_BASE) +
     theme(
-      plot.title = element_text(face = "bold", hjust = 0, size = 11),
+      plot.title = element_text(face = "bold", hjust = 0, size = FONT_TITLE),
       plot.margin = ggplot2::margin(0, 0, 0, 0),
       legend.position = "none",
       aspect.ratio = 1
@@ -251,9 +258,9 @@ plot_pie_panel <- function(frac, celltype_colors, title) {
     geom_col(width = 1, color = NA) +
     coord_polar(theta = "y") +
     scale_fill_manual(values = celltype_colors, drop = FALSE) +
-    theme_void(base_size = 12) +
+    theme_void(base_size = FONT_BASE) +
     theme(
-      plot.title = element_text(face = "bold", hjust = 0, size = 11),
+      plot.title = element_text(face = "bold", hjust = 0, size = FONT_TITLE),
       plot.margin = ggplot2::margin(0, 0, 0, 0),
       legend.position = "none"
     ) +
@@ -472,12 +479,12 @@ rows <- lapply(sample_ids, build_sample_row)
 panel <- cowplot::plot_grid(plotlist = rows, ncol = 1, align = "v", rel_heights = rep(1, length(rows)))
 
 header <- cowplot::ggdraw() +
-  cowplot::draw_label("CAF subtype", x = 0.02, y = 0.98, hjust = 0, vjust = 1, fontface = "bold", size = 14) +
-  cowplot::draw_label("Neighboring cells", x = 0.35, y = 0.98, hjust = 0, vjust = 1, fontface = "bold", size = 14) +
-  cowplot::draw_label("Neighboring composition", x = 0.84, y = 0.98, hjust = 0, vjust = 1, fontface = "bold", size = 14)
+  cowplot::draw_label("CAF subtype", x = 0.02, y = 0.98, hjust = 0, vjust = 1, fontface = "bold", size = FONT_HEADER) +
+  cowplot::draw_label("Neighboring cells", x = 0.35, y = 0.98, hjust = 0, vjust = 1, fontface = "bold", size = FONT_HEADER) +
+  cowplot::draw_label("Neighboring composition", x = 0.84, y = 0.98, hjust = 0, vjust = 1, fontface = "bold", size = FONT_HEADER)
 
 legends <- make_legends(subtype_levels, subtype_colors, canonical, celltype_colors)
-final <- cowplot::plot_grid(header, panel, legends, ncol = 1, rel_heights = c(0.12, 1, 0.22))
+final <- cowplot::plot_grid(header, panel, legends, ncol = 1, rel_heights = c(0.10, 1, 0.18))
 
 if (cfg$output == "") {
   cfg$output <- file.path(cfg$step2_root, "niche_by_sample", "example_niche_by_sample_grid_custom_v2.pdf")
