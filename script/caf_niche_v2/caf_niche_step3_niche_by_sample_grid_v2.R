@@ -105,6 +105,65 @@ sort_subtypes <- function(subtypes) {
   subtypes[order(key, subtypes)]
 }
 
+make_legends <- function(subtype_levels, subtype_colors, celltype_levels, celltype_colors) {
+  subtype_levels <- unique(c(subtype_levels, "Unmapped"))
+  subtype_colors <- subtype_colors[subtype_levels]
+  subtype_colors <- subtype_colors[!is.na(subtype_colors)]
+
+  p1 <- ggplot(
+    data.frame(x = 1, y = seq_along(names(subtype_colors)), subtype = names(subtype_colors)),
+    aes(x = x, y = y, color = subtype)
+  ) +
+    geom_point(size = 3.2) +
+    theme_void(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      legend.justification = "left",
+      legend.box.just = "left",
+      legend.margin = ggplot2::margin(0, 0, 0, 0),
+      legend.box.margin = ggplot2::margin(0, 0, 0, 0),
+      legend.text.align = 0
+    ) +
+    scale_color_manual(values = subtype_colors, drop = FALSE) +
+    guides(color = guide_legend(title = NULL, nrow = 1, override.aes = list(alpha = 1)))
+  leg_subtype <- cowplot::get_legend(p1)
+
+  celltype_labels <- stats::setNames(gsub("_", " ", celltype_levels), celltype_levels)
+  p2 <- ggplot(
+    data.frame(x = 1, y = seq_along(celltype_levels), cell_type = celltype_levels),
+    aes(x = x, y = y, color = cell_type)
+  ) +
+    geom_point(size = 3.2) +
+    theme_void(base_size = 12) +
+    theme(
+      legend.position = "bottom",
+      legend.justification = "left",
+      legend.box.just = "left",
+      legend.margin = ggplot2::margin(0, 0, 0, 0),
+      legend.box.margin = ggplot2::margin(0, 0, 0, 0),
+      legend.text.align = 0
+    ) +
+    scale_color_manual(values = celltype_colors, breaks = celltype_levels, labels = celltype_labels, drop = FALSE) +
+    guides(color = guide_legend(title = NULL, nrow = 1, override.aes = list(alpha = 1)))
+  leg_celltype <- cowplot::get_legend(p2)
+
+  subtype_block <- cowplot::plot_grid(
+    cowplot::ggdraw() + cowplot::draw_label("CAFsubtype", x = 0, hjust = 0, fontface = "bold", size = 12),
+    cowplot::ggdraw() + cowplot::draw_grob(leg_subtype, x = 0, y = 1, hjust = 0, vjust = 1),
+    ncol = 1,
+    rel_heights = c(0.25, 1)
+  )
+
+  celltype_block <- cowplot::plot_grid(
+    cowplot::ggdraw() + cowplot::draw_label("celltype", x = 0, hjust = 0, fontface = "bold", size = 12),
+    cowplot::ggdraw() + cowplot::draw_grob(leg_celltype, x = 0, y = 1, hjust = 0, vjust = 1),
+    ncol = 1,
+    rel_heights = c(0.25, 1)
+  )
+
+  cowplot::plot_grid(subtype_block, celltype_block, ncol = 2, rel_widths = c(1, 2))
+}
+
 make_blank_panel <- function(title = "") {
   ggplot() +
     theme_void(base_size = 12) +
@@ -417,7 +476,8 @@ header <- cowplot::ggdraw() +
   cowplot::draw_label("Neighboring cells", x = 0.35, y = 0.98, hjust = 0, vjust = 1, fontface = "bold", size = 14) +
   cowplot::draw_label("Neighboring composition", x = 0.84, y = 0.98, hjust = 0, vjust = 1, fontface = "bold", size = 14)
 
-final <- cowplot::plot_grid(header, panel, ncol = 1, rel_heights = c(0.12, 1))
+legends <- make_legends(subtype_levels, subtype_colors, canonical, celltype_colors)
+final <- cowplot::plot_grid(header, panel, legends, ncol = 1, rel_heights = c(0.12, 1, 0.22))
 
 if (cfg$output == "") {
   cfg$output <- file.path(cfg$step2_root, "niche_by_sample", "example_niche_by_sample_grid_custom_v2.pdf")
