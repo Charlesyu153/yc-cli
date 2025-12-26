@@ -1,0 +1,217 @@
+---
+title: 'PCF'
+author: "Charles"
+date: "2025-12-12"
+output: html_document
+---
+
+```{r setup}
+reticulate::use_python("/home/jacekyu/miniconda3/envs/spatial/bin/python") # for leiden
+reticulate::py_config()
+library(Seurat)
+library(tidyverse)
+library(ComplexHeatmap)
+```
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=8}
+sample = "13P"
+seu = qs::qread(sprintf("../data/%s.qs",sample))
+DimPlot(seu, reduction = "spatial", pt.size = 1, alpha = 1,group.by = "major_lineage",raster = F)
+```
+```{r, dev='cairo_pdf', fig.width=6, fig.height=6}
+seu = subset(seu,major_lineage == "Unknown",invert = T)
+table(seu$major_lineage)
+
+coords = Embeddings(seu, reduction = "spatial")
+coords = coords * 0.5 # pixel to μm
+seu[["spatial"]]@cell.embeddings = coords
+
+DimPlot(seu, reduction = "spatial", group.by = "major_lineage", label = F, pt.size = .1, alpha = 1,raster = F) +
+  ggsci::scale_color_d3("category10") +
+  coord_equal()
+```
+```{r}
+Idents(seu) = "cell_type_lvl2"
+cells = CellsByIdentities(seu)
+annotation = factor(seu$cell_type_lvl2)
+query.cells = cells$CAF
+coords = Embeddings(seu, reduction = "spatial")
+ref.cells = rownames(coords)
+r = 80
+Q = coords[query.cells, , drop = FALSE]
+nbrs = dbscan::frNN(coords, eps = r, query = Q, sort = FALSE)
+
+names(nbrs)
+class(nbrs$dist)
+class(nbrs$id)
+length(nbrs$dist)
+length(nbrs$id)
+head(nbrs$id[[1]])
+head(nbrs$dist[[1]])
+
+## number of niche cells 
+sapply(nbrs$id, length) %>% summary()
+head(annotation)
+type.levels = levels(annotation)
+type.int = setNames(match(as.character(annotation), type.levels), names(annotation))
+
+#计算时间长，保存？
+niche.mat = pbapply::pblapply(nbrs$id, function(nn) {
+  tabulate(type.int[ref.cells[nn]], nbins = length(type.levels))
+}) %>% do.call(rbind, .)
+colnames(niche.mat) = type.levels
+head(niche.mat)
+
+niche.mat = apply(niche.mat, 1, function(xx) xx/sum(xx))
+niche.mat = t(niche.mat)
+dim(niche.mat)
+# data.table::fwrite(niche.mat,sprintf("../data/%s_nichemm.mtx",sample))
+```
+```{r}
+RcppML::getRcppMLthreads()
+RcppML::setRcppMLthreads(5) ## 使用5个线程
+model <- RcppML::nmf(niche.mat, k = 4, verbose = T, seed = 1024) ## 技术细节：k的数量？
+model$w %>% dim
+model$h %>% dim
+model$d # a vector, length = k
+
+H = model$h
+rownames(H) = paste0("factor_",1:nrow(H))
+colnames(H) = colnames(niche.mat)
+H
+
+# factor1: stromal
+# factor2: Tumor/Epithelial + stromal
+# factor3: Immune
+# factor4: Stromal + Endo
+
+W = model$w
+rownames(W) = rownames(niche.mat)
+colnames(W) = rownames(H)
+head(W)
+```
+
+```{r, dev='cairo_pdf', fig.width=3, fig.height=6}
+d = dist(W, method = "euclidean") # 按行计算
+row_dend = hclust(d, method = "complete")
+
+draw.ht = Heatmap(
+  matrix = W, 
+  name = "Weight", 
+  cluster_rows = row_dend,
+  row_split = 4,
+  cluster_columns = F,
+  border = T,
+  show_row_names = F)
+draw(draw.ht)
+
+clusters = row_order(draw.ht)
+niche.cluster = lapply(seq_along(clusters), function(i) {
+  data.frame(
+    cell_id = rownames(W)[clusters[[i]]],
+    cluster = i
+  )
+}) %>% do.call(rbind, .)
+```
+
+```{r, dev='cairo_pdf', fig.width=5, fig.height=6}
+draw.ht = Heatmap(
+  matrix = niche.mat, 
+  name = "Weight", 
+  cluster_rows = row_dend,
+  row_split = 4,
+  cluster_columns = T,
+  border = T,
+  show_row_names = F,use_raster = F
+  )
+draw(draw.ht)
+```
+
+```{r}
+seu.caf = subset(seu, cells = query.cells)
+seu.caf$CAF.sub = ""
+seu.caf$CAF.sub[niche.cluster$cell_id] = niche.cluster$cluster
+seu.caf$CAF.sub = factor(paste0("CAF-", seu.caf$CAF.sub))
+Idents(seu.caf) = "CAF.sub"
+cells = CellsByIdentities(seu.caf)
+```
+
+```{r, dev='cairo_pdf', fig.width=20, fig.height=5}
+p.list = lapply(seq_along(cells), function(i) {
+  cells.ht = cells[[i]]
+  DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1,raster = F) + 
+    ggtitle(names(cells)[i]) + 
+    theme(plot.title = element_text(hjust = .5)) + 
+    NoLegend() + coord_equal()
+})
+cowplot::plot_grid(plotlist = p.list, ncol = 4)
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=8}
+## 
+niche.average = sapply(cells, function(niche.cells) {
+  colMeans(niche.mat[niche.cells, , drop = FALSE])
+})
+colnames(niche.average) = colnames(niche.average)
+niche.average
+
+## stack plot
+row.order = dput(levels(seu$cell_type_lvl2))
+niche.average = niche.average[row.order, ]
+
+data.plot = niche.average %>% as.data.frame() %>% 
+  mutate(niche = factor(rownames(.), levels = row.order)) %>% 
+  pivot_longer(cols = 1:4, names_to = "Tumor.sub", values_to = "Fraction")
+
+
+ggplot(data.plot, aes(Tumor.sub, Fraction, fill = niche)) + 
+  geom_col() + 
+  ggsci::scale_fill_d3("category20") + 
+  xlab("") + ylab("Fraction of cell types") + 
+  theme_minimal(base_size = 15) + 
+  theme(axis.text = element_text(color = "black"))
+```
+
+```{r, dev='cairo_pdf', fig.width=20, fig.height=4}
+data.bg = Embeddings(seu.caf, reduction = "spatial")
+Idents(seu.caf) = "CAF.sub"
+cells = CellsByIdentities(seu.caf)
+plot.list = lapply(seq_along(cells), function(i) {
+  cells.fg = cells[[i]]
+  data.fg = data.bg[cells.fg, ]
+  ggplot(data.bg, aes(spatial_1, spatial_2)) + 
+    geom_point(size = .1, color = "grey") + 
+    stat_density_2d(data = data.fg, 
+                    aes(fill = after_stat(level)), 
+                    geom = "polygon", 
+                    alpha = 0.5, 
+                    contour = TRUE) + 
+    scale_fill_gradient(low = "white", high = "#A50F15") + 
+    ggtitle(names(cells)[i]) + 
+    labs(x = "UMAP 1", y = "UMAP 2") + 
+    theme_minimal(base_size = 15) + 
+    theme(axis.text = element_text(color = "black"),
+          plot.title = element_text(hjust = .5))
+})
+cowplot::plot_grid(plotlist = plot.list, ncol = 4)
+```
+```{r}
+source("../utils/R/io.R")
+slim_save(seu.tu, file = "Codex_data/Codex_GC_13P_Tumor.SeuratV5.qs")
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
