@@ -17,9 +17,9 @@ if (!requireNamespace("cowplot", quietly = TRUE)) {
 COORD_SCALE <- 1
 RNG_SEED <- 1024
 RASTER_DPI <- 300
-PLOT_BG_SIZE <- 0.06
+PLOT_BG_SIZE <- 0.02
 PLOT_BG_ALPHA <- 0.08
-PLOT_FG_SIZE <- 0.14
+PLOT_FG_SIZE <- 0.05
 PLOT_FG_ALPHA <- 0.9
 
 get_root_dir <- function() {
@@ -84,7 +84,6 @@ get_celltype_colors <- function(schema = c("base", "myeloid_refined")) {
     c(
       Macrophage = "#009E73",
       Neutrophil = "#56B4E9",
-      Myeloid_Mast = "#F0E442",
       Myeloid_other = "#00A087"
     )
   } else {

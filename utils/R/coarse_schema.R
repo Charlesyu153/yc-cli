@@ -27,7 +27,7 @@ get_canonical_coarse <- function(schema = c("base", "myeloid_refined"),
   order <- match.arg(order)
 
   myeloid_levels <- if (schema == "myeloid_refined") {
-    c("Macrophage", "Neutrophil", "Myeloid_Mast", "Myeloid_other")
+    c("Macrophage", "Neutrophil", "Myeloid_other")
   } else {
     "Myeloid"
   }
@@ -82,7 +82,8 @@ refine_myeloid_in_coarse <- function(meta,
   mapped <- rep(NA_character_, length(chosen))
   is_valid <- !is.na(low) & low != ""
 
-  mapped[is_valid & grepl("mast", low)] <- "Myeloid_Mast"
+  # No robust mast-cell markers available in this project; keep as Myeloid_other.
+  mapped[is_valid & grepl("mast", low)] <- "Myeloid_other"
   mapped[is.na(mapped) & is_valid & (grepl("neut", low) | grepl("\\bpmn\\b", low))] <- "Neutrophil"
   mapped[is.na(mapped) & is_valid & (grepl("macroph", low) | grepl("macro", low) | grepl("monocyte", low) | grepl("\\bmono\\b", low))] <- "Macrophage"
 
@@ -97,5 +98,6 @@ rename_myeloid_refined_labels <- function(x) {
   x[x == "Myeloid_Macrophage"] <- "Macrophage"
   x[x == "Myeloid_Neutrophil"] <- "Neutrophil"
   x[x == "Myeloid"] <- "Myeloid_other"
+  x[x == "Myeloid_Mast"] <- "Myeloid_other"
   x
 }

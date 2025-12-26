@@ -27,7 +27,7 @@
 - 每个 `<sample>.qs` 至少包含：
   - 细胞级坐标（如 `x`, `y`）
   - CAF 细胞的标记
-  - `annotation_coarse`（粗 cell-type 注释，Myeloid 已细分并重命名为 `Macrophage/Neutrophil/Myeloid_other`；可选 `Myeloid_Mast`）
+  - `annotation_coarse`（粗 cell-type 注释，Myeloid 已细分并重命名为 `Macrophage/Neutrophil/Myeloid_other`）
   - （可选）其它元信息：`sample_id` 等
 
 ### 0.2 输出根目录
@@ -72,7 +72,7 @@
       - 内容：cell_id → local_cluster_id（基于该 run 的 clustering）
     - `niche_average_<profile>_k{k}_run{r}.tsv`
       - 内容：每个 local_cluster 的 profile
-      - 列：coarse cell types（含 `Macrophage/Neutrophil/Myeloid_other`；可选 `Myeloid_Mast`）的比例/频数
+      - 列：coarse cell types（含 `Macrophage/Neutrophil/Myeloid_other`）的比例/频数
 
 ### 1.4 稳定性指标定义
 
@@ -155,7 +155,7 @@
    - 输出文件：
      - `niche_average_<profile>_selected.tsv`
        - 行：local_cluster_id
-       - 列：coarse cell types（含 `Macrophage/Neutrophil/Myeloid_other`；可选 `Myeloid_Mast`）的比例/频数
+       - 列：coarse cell types（含 `Macrophage/Neutrophil/Myeloid_other`）的比例/频数
 
 2. **共识 cluster assignment（可选但推荐）：**
    - 对 cell → cluster 的多次 run 结果做投票/最大后验：
@@ -197,7 +197,7 @@
 1. **矩阵 X（local_cluster × coarse cell types）：**
    - 每一行对应一个“本地 cluster”，建议用组合 ID 标识：
      - `global_local_cluster_id = sample_id + ":" + local_cluster_id`
-   - 每一个元素为该本地 cluster 在某 coarse cell-type（含 `Macrophage/Neutrophil/Myeloid_other`；可选 `Myeloid_Mast`）上的比例/频数。
+   - 每一个元素为该本地 cluster 在某 coarse cell-type（含 `Macrophage/Neutrophil/Myeloid_other`）上的比例/频数。
 
 2. **metadata 表 M：**
    - 行与 X 一一对应，列包括：
@@ -405,7 +405,7 @@ w_i = \log(1 + n\_cells) \times \text{stab\_combined}_i \times (1 - 0.5 \cdot is
 - 全局 CAF subtype 数目：`K_global_final ≤ 5`
 - 每个 subtype 尽可能跨样本出现：
   - 大部分 subtype 在多数样本中有非零权重
-- Myeloid 细分（当前命名：`Macrophage/Neutrophil/Myeloid_other`；可选 `Myeloid_Mast`）在：
+- Myeloid 细分（当前命名：`Macrophage/Neutrophil/Myeloid_other`）在：
   - local niche profiles
   - global subtype profiles
   中均有合理信号、具有可解释性。
@@ -419,7 +419,7 @@ w_i = \log(1 + n\_cells) \times \text{stab\_combined}_i \times (1 - 0.5 \cdot is
    - 用于评估 subtype 的跨样本覆盖和样本特异性。
 2. **Subtype 内 profile 热图**
    - 对每个 subtype 内的 local cluster profile 做聚合，可视化：
-     - 各 coarse cell-type（含 `Macrophage/Neutrophil/Myeloid_other`；可选 `Myeloid_Mast`）的平均比例；
+     - 各 coarse cell-type（含 `Macrophage/Neutrophil/Myeloid_other`）的平均比例；
    - 用于理解 CAF–免疫–其它 cell type 的组合模式。
 3. **稳定性 vs 拟合度散点图**
    - 对每个样本的 `selected_k`，画点：

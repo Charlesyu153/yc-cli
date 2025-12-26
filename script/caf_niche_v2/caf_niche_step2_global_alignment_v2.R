@@ -57,7 +57,8 @@ align_profile_columns <- function(mat, canonical) {
   if (is.null(colnames(mat))) stop("Profile matrix missing column names.")
   extras <- setdiff(colnames(mat), canonical)
   if (length(extras) > 0) {
-    stop(glue("Unexpected profile columns: {paste(extras, collapse = ', ')}"))
+    # Allow extra columns (e.g. removed levels like Myeloid_Mast) and drop them.
+    mat <- mat[, setdiff(colnames(mat), extras), drop = FALSE]
   }
   missing <- setdiff(canonical, colnames(mat))
   if (length(missing) > 0) {
@@ -175,6 +176,47 @@ max_sample_share <- function(labels, meta, weights) {
     out[g] <- if (w_tot > 0) max(w_by$w) / w_tot else NA_real_
   }
   out
+}
+
+rotate_leaf_order_by_label <- function(hc, leaf_labels) {
+  n <- length(hc$labels)
+  if (length(leaf_labels) != n) stop("leaf_labels length must match hc$labels length.")
+  merge <- hc$merge
+
+  solve_node <- function(node) {
+    if (node < 0) {
+      leaf_idx <- -node
+      lab <- as.character(leaf_labels[[leaf_idx]])
+      return(list(order = leaf_idx, score = 0L, first = lab, last = lab))
+    }
+    left <- merge[node, 1]
+    right <- merge[node, 2]
+    a <- solve_node(left)
+    b <- solve_node(right)
+
+    score_ab <- a$score + b$score + as.integer(!identical(a$last, b$first))
+    score_ba <- b$score + a$score + as.integer(!identical(b$last, a$first))
+
+    if (score_ba < score_ab) {
+      return(list(order = c(b$order, a$order), score = score_ba, first = b$first, last = a$last))
+    }
+    if (score_ab < score_ba) {
+      return(list(order = c(a$order, b$order), score = score_ab, first = a$first, last = b$last))
+    }
+    list(order = c(a$order, b$order), score = score_ab, first = a$first, last = b$last)
+  }
+
+  res <- solve_node(n - 1L)
+  hc$labels[res$order]
+}
+
+count_label_runs <- function(labels) {
+  labels <- as.character(labels)
+  labels <- labels[!is.na(labels) & labels != ""]
+  if (length(labels) == 0) return(data.frame(label = character(0), runs = integer(0)))
+  runs <- c(TRUE, labels[-1] != labels[-length(labels)])
+  r <- table(labels[runs])
+  data.frame(label = names(r), runs = as.integer(r), stringsAsFactors = FALSE)
 }
 
 merge_bad_subtypes <- function(x, labels, meta, weights, cov_min, pur_min, lambda_p, lambda_l,
@@ -522,6 +564,37 @@ if (cfg$write_heatmaps) {
     show_colnames = FALSE,
     annotation_row = ann,
     annotation_col = ann,
+    annotation_colors = ann_cols,
+    color = grDevices::colorRampPalette(c("#1A1A1A", "#FFFFFF", "#B2182B"))(100),
+    border_color = NA
+  )
+  grDevices::dev.off()
+
+  # Optional: rotated leaf order to reduce subtype fragmentation while preserving the same dendrogram.
+  ids_rot <- rotate_leaf_order_by_label(hc, leaf_labels = stats::setNames(mapping$global_subtype, mapping$global_local_cluster_id)[hc$labels])
+  cor_rot <- cor_mat[ids_rot, ids_rot, drop = FALSE]
+  ann_rot <- ann[ids_rot, , drop = FALSE]
+  hc_rot <- hc
+  hc_rot$order <- match(ids_rot, hc_rot$labels)
+
+  runs_before <- count_label_runs(stats::setNames(mapping$global_subtype, mapping$global_local_cluster_id)[hc$labels[hc$order]])
+  runs_after <- count_label_runs(stats::setNames(mapping$global_subtype, mapping$global_local_cluster_id)[ids_rot])
+  runs_out <- merge(runs_before, runs_after, by = "label", all = TRUE, suffixes = c("_hc", "_rot"))
+  runs_out$runs_hc[is.na(runs_out$runs_hc)] <- 0L
+  runs_out$runs_rot[is.na(runs_out$runs_rot)] <- 0L
+  utils::write.table(runs_out, file.path(cfg$output_root, "global_similarity_heatmap_run_counts.tsv"), sep = "\t", quote = FALSE, row.names = FALSE)
+
+  grDevices::cairo_pdf(file.path(cfg$output_root, "global_similarity_heatmap_rotated_by_subtype.pdf"), width = 10, height = 9)
+  pheatmap::pheatmap(
+    cor_rot,
+    cluster_rows = hc_rot,
+    cluster_cols = hc_rot,
+    treeheight_row = 25,
+    treeheight_col = 25,
+    show_rownames = FALSE,
+    show_colnames = FALSE,
+    annotation_row = ann_rot,
+    annotation_col = ann_rot,
     annotation_colors = ann_cols,
     color = grDevices::colorRampPalette(c("#1A1A1A", "#FFFFFF", "#B2182B"))(100),
     border_color = NA

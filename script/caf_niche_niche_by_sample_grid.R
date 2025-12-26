@@ -51,7 +51,6 @@ get_celltype_colors <- function(schema = c("base", "myeloid_refined")) {
     c(
       Macrophage = "#009E73",
       Neutrophil = "#56B4E9",
-      Myeloid_Mast = "#F0E442",
       Myeloid_other = "#00A087"
     )
   } else {

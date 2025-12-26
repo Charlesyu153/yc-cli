@@ -13,7 +13,6 @@ CANONICAL_COARSE <- c(
   "Endothelial",
   "Macrophage",
   "Neutrophil",
-  "Myeloid_Mast",
   "Myeloid_other",
   "Stromal_other",
   "T_cell",
