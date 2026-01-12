@@ -12,10 +12,12 @@
 | 功能 | 路径 | 说明 |
 |------|------|------|
 | AI协作文档 | `ai-docs/` | 任务管理和协作规范 |
+| 项目文档 | `docs/` | 技术文档和说明 |
 | Python预处理 | `PCF/*.py` | SpatialData构建和清理 |
 | R分析脚本 | `script/*.R` | CAF Niche批量分析 |
 | CAF Niche v2 | `script/caf_niche_v2/` | 最新分析流程 |
 | 参考脚本 | `script_ref/*.Rmd` | CosMx分析参考 |
+| 测试脚本 | `tests/*.R` | 单元测试和集成测试 |
 | 原始数据 | `rawdata/` | 18个样本原始数据 |
 | 分析结果 | `data/caf_niche*/` | CAF Niche分析输出 |
 | Seurat对象 | `data/*.qs` | R分析对象 |
@@ -30,16 +32,21 @@ ai-docs/                                # AI协作文档管理系统
 ├── README.md, QUICKREF.md, USAGE.md    # 使用指南
 ├── current/                            # 进行中任务
 ├── archive/                            # 已完成任务
+│   └── legacy-tasks/                   # 历史任务归档
+│       ├── 0.TASKS.md
+│       ├── 1.cafnichetask.md
+│       ├── cafnichetaskV2.md
+│       └── task_CNanalysis.md
 └── templates/                          # 模板和工具脚本
     ├── ai-guidelines.md                # AI协作规范
     ├── task-template.md                # 任务模板
     └── *.sh                            # 任务管理脚本
 
-tasks/                                  # 历史任务（待迁移到ai-docs）
-├── 0.TASKS.md
-├── 1.cafnichetask.md
-├── cafnichetaskV2.md
-└── task_CNanalysis.md
+docs/                                   # 项目技术文档
+├── AGENTS.md                           # Agent配置说明
+├── CONTEXT_SUMMARY.md                  # 上下文总结
+├── README_caf_niche_log2_enrichment.md # CAF Niche富集分析说明
+└── datapre.txt                         # 数据预处理详细规范
 ```
 
 ### 2. 代码脚本
@@ -55,6 +62,7 @@ PCF/                                    # Python预处理脚本
 
 script/                                 # R分析脚本
 ├── README_scripts.md                   # 脚本说明
+├── convert_h5ad_to_seurat.R            # h5ad -> Seurat格式转换
 ├── caf_niche_batch*.R                  # CAF Niche批量分析
 ├── caf_niche_global_*.R                # 全局分析（比对/亚型空间）
 ├── caf_niche_niche_by_sample_grid.R    # 样本网格分析
@@ -63,12 +71,16 @@ script/                                 # R分析脚本
 ├── summary_coarse_composition.R        # 组成汇总
 └── Codex_*.Rmd                         # 单样本分析流程
 
-script_ref/                             # CosMx参考流程（12个脚本）
+script_ref/                             # CosMx参考流程（13个脚本）
 ├── CosMx_01_annotation_*.Rmd           # 注释流程
 ├── CosMx_02_cell_niche_*.Rmd           # Niche分析
 ├── CosMx_03_integration_*.{Rmd,ipynb}  # 整合分析
 ├── CosMx_04_visualization.Rmd          # 可视化
 └── CosMx_05_cell_niche_across_*.Rmd    # 跨切片分析
+
+tests/                                  # 测试脚本
+├── test_conversion.R                   # 格式转换测试
+└── test_single_sample.R                # 单样本测试
 
 utils/R/                                # R工具函数库
 ```
@@ -107,14 +119,10 @@ backup/step3_caf_niche/                 # 备份文件
 ### 4. 配置和工具
 
 ```
-convert_h5ad_to_seurat.R                # h5ad -> Seurat转换
-test_conversion.R                       # 转换测试
-test_single_sample.R                    # 单样本测试
-batch_process.log                       # 批处理日志
-datapre.txt                             # 数据预处理说明
-README_*.md                             # 各类说明文档
-AGENTS.md                               # Agent配置
-CONTEXT_SUMMARY.md                      # 上下文总结
+logs/                                   # 日志文件
+└── batch_process.log                   # 批处理日志
+
+README_ai-doc.md                        # 项目结构文档（本文档）
 ```
 
 ## 数据处理流程
@@ -128,7 +136,7 @@ cleandata
     v  [build_spatialdata_*.py]
 spatial/*.{h5ad, sdata.zarr}
     |
-    v  [convert_h5ad_to_seurat.R]
+    v  [script/convert_h5ad_to_seurat.R]
 data/*.qs (Seurat objects)
     |
     v  [script/*.R]
@@ -172,5 +180,23 @@ cd ai-docs/templates
 
 ---
 
-文档版本：v2.0
+文档版本：v3.0
 最后更新：2026-01-12
+
+## 版本历史
+
+v3.0 (2026-01-12) - 文件重组
+- 新增 docs/ 目录统一管理项目文档
+- 新增 tests/ 目录管理测试脚本
+- 新增 logs/ 目录管理日志文件
+- tasks/ 迁移至 ai-docs/archive/legacy-tasks/
+- convert_h5ad_to_seurat.R 移至 script/
+- 更新项目结构文档和快速导航
+
+v2.0 (2026-01-12) - 结构优化
+- 优化目录树展示（精简35%）
+- 添加快速导航表格
+- 按功能模块重组文档结构
+
+v1.0 (2026-01-12) - 初始版本
+- 创建项目结构文档
