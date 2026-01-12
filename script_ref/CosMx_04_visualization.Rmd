@@ -1,0 +1,113 @@
+---
+title: 'CosMx: Visualization'
+author: "Jarning"
+date: "2025-10-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(Seurat)
+library(qs)
+library(tidyverse)
+```
+
+## De novo integration
+
+### Anchored-rPCA
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=6}
+seu = qread("CosMx_data/Lung5_Rep1.SeuratV5.qs")
+metadata = read.table("CosMx_data/denovo/rpca/LUAD.annotated.obs.tsv", sep = "\t", row.names = 1, header = T)
+metadata = metadata[, c("seurat_clusters", 'annotation')]
+# head(Cells(seu))
+# head(rownames(metadata))
+seu = AddMetaData(seu, metadata = metadata)
+
+DimPlot(seu, reduction = "spatial", group.by = "annotation", label = F, pt.size = .1, alpha = 1) + ggsci::scale_color_d3("category20") + coord_equal()
+```
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=6}
+Idents(seu) = "annotation"
+cells = CellsByIdentities(seu)
+lapply(seq_along(cells), function(i) {
+  cells.ht = cells[[i]]
+  DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1) + 
+    ggtitle(names(cells)[i]) + 
+    theme(plot.title = element_text(hjust = .5)) + 
+    NoLegend() + coord_equal()
+})
+```
+
+
+### Harmony
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=6}
+seu = qread("CosMx_data/Lung5_Rep1.SeuratV5.qs")
+metadata = read.table("CosMx_data/denovo/harmony/LUAD.annotated.obs.tsv", sep = "\t", row.names = 1, header = T)
+metadata = metadata[, c("leiden", 'cell_type')]
+head(Cells(seu))
+seu = AddMetaData(seu, metadata = metadata)
+
+DimPlot(seu, reduction = "spatial", group.by = "cell_type", label = F, pt.size = .1, alpha = 1) + ggsci::scale_color_d3("category20") + coord_equal()
+```
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=6}
+Idents(seu) = "cell_type"
+cells = CellsByIdentities(seu)
+lapply(seq_along(cells), function(i) {
+  cells.ht = cells[[i]]
+  DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1) + 
+    ggtitle(names(cells)[i]) + 
+    theme(plot.title = element_text(hjust = .5)) + 
+    NoLegend() + coord_equal()
+})
+```
+
+### scVI
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=6}
+seu = qread("CosMx_data/Lung5_Rep1.SeuratV5.qs")
+metadata = read.table("CosMx_data/denovo/scvi/LUAD.annotated.obs.tsv", sep = "\t", row.names = 1, header = T)
+metadata = metadata[, c("leiden_scvi", 'cell_type')]
+head(Cells(seu))
+seu = AddMetaData(seu, metadata = metadata)
+
+DimPlot(seu, reduction = "spatial", group.by = "cell_type", label = F, pt.size = .1, alpha = 1) + ggsci::scale_color_d3("category20") + coord_equal()
+```
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=6}
+Idents(seu) = "cell_type"
+cells = CellsByIdentities(seu)
+lapply(seq_along(cells), function(i) {
+  cells.ht = cells[[i]]
+  DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1) + 
+    ggtitle(names(cells)[i]) + 
+    theme(plot.title = element_text(hjust = .5)) + 
+    NoLegend() + coord_equal()
+})
+```
+
+## Sketch-based
+
+### Anchored-rPCA
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=6}
+seu = qread("CosMx_data/sketch/rpca/projection/Lung5_Rep1.SeuratV5.annotated.qs")
+# head(Cells(seu))
+# head(rownames(metadata))
+
+DimPlot(seu, reduction = "spatial", group.by = "annotation", label = F, pt.size = .1, alpha = 1) + ggsci::scale_color_d3("category20") + coord_equal()
+```
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=6}
+Idents(seu) = "annotation"
+cells = CellsByIdentities(seu)
+lapply(seq_along(cells), function(i) {
+  cells.ht = cells[[i]]
+  DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1) + 
+    ggtitle(names(cells)[i]) + 
+    theme(plot.title = element_text(hjust = .5)) + 
+    NoLegend() + coord_equal()
+})
+```
+

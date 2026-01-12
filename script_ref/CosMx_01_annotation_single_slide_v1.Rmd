@@ -1,0 +1,256 @@
+---
+title: 'CosMx: Annotation'
+author: "Jarning"
+date: "2025-10-14"
+output: html_document
+---
+
+```{r setup}
+# reticulate::use_python("/home/jarning/miniconda3/envs/spatial-data/bin/python")
+reticulate::use_python("/home/jarning/miniconda3/envs/test-env/bin/python")
+reticulate::py_config()
+sc = reticulate::import("scanpy")
+library(tidyverse)
+library(Seurat)
+```
+
+```{r, dev='cairo_pdf', fig.width=5, fig.height=5}
+adata = sc$read_h5ad("../io/CosMx_Lung5_Rep1.h5ad") # sc.hread_h5ad()
+counts = adata$X
+meta.data = adata$obs
+features = adata$var_names$to_list()
+
+dim(counts)
+dim(meta.data)
+
+counts[1:5,1:5]
+rownames(counts) = rownames(meta.data)
+colnames(counts) = features
+
+seu = CreateSeuratObject(counts = t(counts), meta.data = meta.data)
+rm(counts)
+rm(meta.data)
+
+coords = as.matrix(adata$obsm['global'])
+dim(coords)
+head(coords)
+rownames(coords) = rownames(seu@meta.data)
+colnames(coords) = paste0("spatial_", 1:2)
+seu[["spatial"]] = CreateDimReducObject(coords, key = "spatial_")
+
+rm(adata)
+gc()
+
+DimPlot(seu, reduction = "spatial", pt.size = 1, alpha = 1) + NoLegend()
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=4}
+VlnPlot(seu, features = c("nCount_RNA", "nFeature_RNA"), pt.size = 0)
+
+prop.table(table(seu$nFeature_RNA >= 20))
+prop.table(table(seu$nCount_RNA >= 20))
+
+seu = subset(seu, nCount_RNA >= 20)
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=6}
+seu = NormalizeData(seu)
+seu = ScaleData(seu)
+seu = RunPCA(seu, features = Features(seu))
+
+# 如何决定PC数量
+# 方法1
+ElbowPlot(seu, ndims = 50)
+# 方法2
+vars = (seu[["pca"]]@stdev) ^ 2
+frac.of.vars = cumsum(vars) / sum(vars)
+npcs = which(frac.of.vars > 0.8) %>% min()
+
+seu = FindNeighbors(seu, reduction = "pca", dims = 1:npcs)
+seu = FindClusters(seu, resolution = 0.5)
+
+seu = RunUMAP(seu, reduction = "pca", dims = 1:npcs)
+
+DimPlot(seu, reduction = "umap", group.by = "seurat_clusters", label = T) + ggsci::scale_color_d3("category20")
+DimPlot(seu, reduction = "spatial", group.by = "seurat_clusters", label = F, pt.size = .1, alpha = 1) + ggsci::scale_color_d3("category20")
+
+Idents(seu) = "seurat_clusters"
+cells = CellsByIdentities(seu)
+lapply(seq_along(cells), function(i) {
+  cells.ht = cells[[i]]
+  DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1) + 
+    ggtitle(paste("cluster", names(cells)[i])) + 
+    theme(plot.title = element_text(hjust = .5)) + 
+    NoLegend()
+})
+```
+
+```{r, dev='cairo_pdf', fig.width=18, fig.height=4}
+Idents(seu) = "seurat_clusters"
+seu.ds = subset(seu, downsample = 500)
+all.markers = FindAllMarkers(seu.ds, only.pos = T)
+
+top5.markers = all.markers %>% group_by(cluster) %>% slice_head(n = 5) %>% pull(gene) %>% unique()
+
+DotPlot(seu, features = top5.markers) + RotatedAxis()
+```
+
+```{r, dev='cairo_pdf', fig.width=7, fig.height=4}
+VlnPlot(seu, features = "TPSAB1", pt.size = 0) + NoLegend()
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=6}
+FeaturePlot(seu, reduction = "umap", features = c("Mean.PanCK"))
+FeaturePlot(seu, reduction = "umap", features = c("nFeature_RNA"))
+FeaturePlot(seu, reduction = "umap", features = c("Mean.CD45"), max.cutoff = "q95")
+```
+
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=6}
+#####
+seu$annotation = "LowQ"
+
+seu$annotation[seu$seurat_clusters %in% c(1,10)] = "Tumor"
+seu$annotation[seu$seurat_clusters %in% c(11)] = "LTF+ Epi"
+
+seu$annotation[seu$seurat_clusters == 6] = "CAF"
+seu$annotation[seu$seurat_clusters %in% c(2)] = "Endo"
+
+## Macrophage需要进一步细分，因为Macrophage-1和Macrophage-2有不同的空间定位
+seu$annotation[seu$seurat_clusters %in% c(5)] = "Macrophage-1"
+seu$annotation[seu$seurat_clusters %in% c(7)] = "Macrophage-2"
+seu$annotation[seu$seurat_clusters == 3] = "Neutrophil"
+
+seu$annotation[seu$seurat_clusters == 0] = "T cell"
+seu$annotation[seu$seurat_clusters == 4] = "B cell"
+seu$annotation[seu$seurat_clusters == 8] = "Plasma"
+
+seu$annotation[seu$seurat_clusters == 12] = "Mast"
+
+DimPlot(seu, reduction = "umap", group.by = "annotation", label = T) + ggsci::scale_color_d3("category20")
+DimPlot(seu, reduction = "spatial", group.by = "annotation", label = F, pt.size = .1, alpha = 1) + ggsci::scale_color_d3("category20") + NoLegend()
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=6}
+Idents(seu) = "annotation"
+cells = CellsByIdentities(seu)
+lapply(seq_along(cells), function(i) {
+  cells.ht = cells[[i]]
+  DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1) + 
+    ggtitle(names(cells)[i]) + 
+    theme(plot.title = element_text(hjust = .5)) + 
+    NoLegend()
+})
+```
+
+
+```{r}
+seu.export = CreateSeuratObject(
+  counts = LayerData(seu, layer = "counts"),
+  meta.data = seu@meta.data
+)
+seu.export[["RNA_nn"]] = seu[["RNA_nn"]]
+seu.export[["RNA_snn"]] = seu[["RNA_snn"]]
+seu.export[["pca"]] = seu[["pca"]]
+seu.export[["umap"]] = seu[["umap"]]
+seu.export[["spatial"]] = seu[["spatial"]]
+qs::qsave(seu.export, "CosMx_data/CosMx_Lung5_Rep1.SeuratV5.v1.qs")
+```
+
+```{r, dev='cairo_pdf', fig.width=10, fig.height=5}
+seu = qs::qread("CosMx_data/CosMx_Lung5_Rep1.SeuratV5.qs")
+
+## 融合蛋白染色特征
+colnames(seu@meta.data)
+stain = FetchData(seu, vars = c("Mean.PanCK", "Mean.CD45", "Mean.CD3"))
+head(stain)
+
+seu[["IF"]] = CreateAssayObject(data = t(stain))
+
+DefaultAssay(seu) = "IF"
+seu = ScaleData(seu)
+
+pca.rna = Embeddings(seu, reduction = "pca")[, 1:npcs]
+data.if = LayerData(seu, layer = "scale.data") %>% t()
+dim(pca.rna)
+dim(data.if)
+
+pca.cat = cbind(pca.rna, data.if)
+colnames(pca.cat) = paste0("pcacat_", 1:ncol(pca.cat))
+
+seu[["pca.cat"]] = CreateDimReducObject(pca.cat)
+
+seu = RunUMAP(seu, reduction = "pca.cat", dims = 1:ncol(pca.cat), reduction.name = "umap.cat")
+
+Idents(seu) = "annotation"
+p1 = DimPlot(seu, reduction = "umap", label = T) + NoLegend()
+p2 = DimPlot(seu, reduction = "umap.cat", label = T)
+
+p1 + p2
+
+p1 = DimPlot(seu, reduction = "pca", label = T) + NoLegend()
+p2 = DimPlot(seu, reduction = "pca.cat", label = T, dims = 26:27)
+
+p1 + p2
+
+p1 = FeaturePlot(seu, reduction = "umap", features = "Mean.PanCK")
+p2 = FeaturePlot(seu, reduction = "umap", features = "Mean.CD45", max.cutoff = "q90")
+p1 | p2
+```
+
+```{r, dev='cairo_pdf', fig.width=7, fig.height=4}
+Idents(seu) = "annotation"
+VlnPlot(seu, features = "Mean.CD3", pt.size = 0) + NoLegend()
+VlnPlot(seu, features = "Mean.CD45", pt.size = 0) + NoLegend()
+VlnPlot(seu, features = "Mean.PanCK", pt.size = 0) + NoLegend()
+```
+
+```{r}
+DefaultAssay(seu) = "RNA"
+seu = NormalizeData(seu)
+seu.ds = subset(seu, downsample = 500)
+seu.ds = NormalizeData(seu.ds)
+all.markers = FindAllMarkers(seu.ds, only.pos = T)
+```
+
+
+```{r, dev='cairo_pdf', fig.width=12, fig.height=6}
+Idents(seu) = "annotation"
+cells = CellsByIdentities(seu)
+
+p1 = DimPlot(seu, reduction = "spatial", cells.highlight = cells[c("Tumor","LAMP3+ Tumor")], 
+        cols.highlight = c("red","purple","grey"),
+        sizes.highlight = .1, pt.size = .1) + 
+  theme(plot.title = element_text(hjust = .5)) + 
+  NoLegend()
+
+p2 = FeaturePlot(seu, reduction = "spatial", pt.size = .1, features = "Mean.PanCK") + NoLegend()
+p1 | p2
+
+p1 = DimPlot(seu, reduction = "spatial", cells.highlight = cells[c("Neutrophil","T cell")], 
+        cols.highlight = c("red","purple","grey"),
+        sizes.highlight = .1, pt.size = .1) + 
+  theme(plot.title = element_text(hjust = .5)) + 
+  NoLegend()
+
+p2 = FeaturePlot(seu, reduction = "spatial", pt.size = .1, features = "Mean.CD3") + NoLegend()
+p1 | p2
+
+p1 = FeaturePlot(seu, reduction = "spatial", pt.size = .1, features = "PTPRC") + NoLegend()
+p2 = FeaturePlot(seu, reduction = "spatial", pt.size = .1, features = "Mean.CD45", max.cutoff = "q90") + NoLegend()
+p1 | p2
+
+p1 = FeaturePlot(seu, reduction = "spatial", pt.size = .1, features = "CD3G", max.cutoff = "q95") + NoLegend()
+p2 = FeaturePlot(seu, reduction = "spatial", pt.size = .1, features = "Mean.CD3", max.cutoff = "q90") + NoLegend()
+p1 | p2
+
+p1 = FeaturePlot(seu, reduction = "spatial", pt.size = .1, features = "Mean.CD45", max.cutoff = "q90") + NoLegend()
+p2 = FeaturePlot(seu, reduction = "spatial", pt.size = .1, features = "Mean.CD3", max.cutoff = "q90") + NoLegend()
+p1 | p2
+```
+
+```{r, dev='cairo_pdf', fig.width=5, fig.height=5}
+FeatureScatter(seu, feature1 = "CD3G", feature2 = "Mean.CD3") + NoLegend()
+FeatureScatter(seu, feature1 = "PTPRC", feature2 = "Mean.CD45") + NoLegend()
+```
+

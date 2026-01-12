@@ -1,0 +1,75 @@
+---
+title: 'CosMx: Subsampling'
+author: "Jarning"
+date: "2025-10-26"
+output: html_document
+---
+
+```{r setup}
+library(Seurat)
+library(tidyverse)
+library(glue)
+library(qs)
+```
+
+## 1. 随机抽样
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+n.cells = 10000
+seu <- qread("CosMx_data/Lung5_Rep1.SeuratV5.qs")
+cells.use = sample(Cells(seu), size = n.cells, replace = F)
+
+seu2 = subset(seu, cells = n.cells)
+DimPlot(seu, reduction = "spatial", cells.highlight = cells.use, sizes.highlight = 0.1, pt.size = 0.1) + NoLegend()
+```
+
+## 2. 类平衡抽样
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+n.cells = 10000
+seu <- qread("CosMx_data/Lung5_Rep1.SeuratV5.qs")
+
+seu = NormalizeData(seu)
+seu = FindVariableFeatures(seu)
+seu = ScaleData(seu)
+seu = RunPCA(seu)
+
+seu = FindNeighbors(seu)
+seu = FindClusters(seu, resolution = 0.8)
+
+Idents(seu) = "seurat_clusters"
+
+cells.per.cluster = table(Idents(seu))
+min.cells = min(cells.per.cluster)
+ds.size = round(n.cells / length(cells.per.cluster))
+
+table(cells.per.cluster > ds.size)
+
+seu2 = subset(seu, downsample = ds.size)
+
+cells.use = Cells(seu2)
+length(cells.use)
+
+DimPlot(seu, reduction = "spatial", cells.highlight = cells.use, sizes.highlight = 0.1, pt.size = 0.1) + NoLegend()
+```
+
+## 3. Sketch sampling
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+n.cells = 10000
+seu <- qread("CosMx_data/Lung5_Rep1.SeuratV5.qs")
+
+seu = NormalizeData(seu)
+seu = FindVariableFeatures(seu)
+seu <- SketchData(object = seu, 
+                  ncells = n.cells, 
+                  method = "LeverageScore", 
+                  sketched.assay = "sketch")
+
+cells.use = Cells(seu[["sketch"]])
+length(cells.use)
+
+DefaultAssay(seu) = "RNA"
+DimPlot(seu, reduction = "spatial", cells.highlight = cells.use, sizes.highlight = 0.1, pt.size = 0.1) + NoLegend()
+```
+

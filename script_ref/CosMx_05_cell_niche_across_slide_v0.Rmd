@@ -1,0 +1,194 @@
+---
+title: 'CosMx: Cell Niche'
+author: "Jarning"
+date: "2025-10-14"
+output: html_document
+---
+
+```{r setup}
+library(Seurat)
+library(glue)
+library(qs)
+library(tidyverse)
+library(ComplexHeatmap)
+source("../utils/R/niche.R")
+
+samples = c("Lung5_Rep1", "Lung5_Rep2", "Lung5_Rep3", "Lung6", 
+            "Lung9_Rep1", "Lung9_Rep2", "Lung12", "Lung13")
+```
+
+```{r}
+out.list = parallel::mclapply(samples, function(sn) {
+  seurat.file = glue("CosMx_data/sketch/rpca/projection/{sn}.SeuratV5.annotated.qs")
+  seu = qs::qread(seurat.file)
+  seu = subset(seu, annotation != "LowQ")
+  coords = Embeddings(seu, reduction = "spatial")
+  coords = coords * 0.12028 # pixel to μm
+  seu[["spatial"]]@cell.embeddings = coords
+  Idents(seu) = "annotation"
+  cells = CellsByIdentities(seu)
+  out = CalNichMatrix(seu, query.cells = cells$CAF, r = 80, reduction = "spatial", anno_col = "annotation")
+  return(out)
+}, mc.cores = 5)
+names(out.list) = samples
+niche.mat.norm = lapply(out.list, function(out) out$niche.mat.norm) %>% do.call(rbind, .)
+
+dim(niche.mat.norm)
+```
+
+```{r}
+RunNMF = function(niche.mat, k=5, cores=5) {
+  # RcppML::getRcppMLthreads()
+  RcppML::setRcppMLthreads(cores) ## 使用5个线程
+  model <- RcppML::nmf(niche.mat, k = k, verbose = T, seed = 1024) ## 技术细节：k的数量？
+  
+  H = model$h
+  rownames(H) = paste0("factor_",1:nrow(H))
+  colnames(H) = colnames(niche.mat)
+  # round(H, 4)
+  
+  W = model$w
+  rownames(W) = rownames(niche.mat)
+  colnames(W) = rownames(H)
+  # head(W)
+  
+  return(list(W=W, H=H))
+}
+
+nmf.res = RunNMF(niche.mat.norm, k=5, cores=5)
+W = nmf.res$W
+H = nmf.res$H
+
+round(H, 4)
+```
+
+```{r}
+seu.list = pbapply::pblapply(samples, function(sn) {
+  seurat.file = glue("CosMx_data/{sn}.SeuratV5.qs")
+  seu = qread(seurat.file)
+  cells.use = intersect(Cells(seu), rownames(niche.mat.norm))
+  seu = subset(seu, cells = cells.use)
+  return(seu)
+})
+
+seu.caf = merge(x = seu.list[[1]], y = seu.list[-1])
+Layers(seu.caf)
+```
+
+
+```{r, dev='cairo_pdf', fig.width=5, fig.height=5, warning=FALSE}
+seu.caf[["nmf"]] = CreateDimReducObject(W, key = "factor_")
+seu.caf = RunUMAP(seu.caf, reduction = "nmf", dims = 1:5)
+
+seu.caf = FindNeighbors(seu.caf, reduction = "nmf", dims = 1:5, k.param = 50) # k.param = 15 (default), larger k, less clusters
+seu.caf = FindClusters(seu.caf, resolution = 0.1, algorithm = 1, cluster.name = "CAF.sub")
+seu.caf$CAF.sub = factor(paste0("CAF-", seu.caf$CAF.sub))
+# length(unique(seu.caf$CAF.sub))
+DimPlot(seu.caf, reduction = "umap", group.by = "CAF.sub", label = T)
+```
+
+```{r}
+seu.caf$CAF.sub.annotation = ""
+seu.caf$CAF.sub.annotation[seu.caf$CAF.sub %in% c("CAF-0")] = "s1-CAFs" # tumor
+seu.caf$CAF.sub.annotation[seu.caf$CAF.sub %in% c("CAF-3")] = "s2-CAFs" # stromal (CAF)
+seu.caf$CAF.sub.annotation[seu.caf$CAF.sub %in% c("CAF-2")] = "s3-CAFs" # myeloid cells
+seu.caf$CAF.sub.annotation[seu.caf$CAF.sub %in% c("CAF-4")] = "s4-CAFs" # T/B cells
+seu.caf$CAF.sub.annotation[seu.caf$CAF.sub %in% c("CAF-1")] = "s5-CAFs" # Plasma cells
+```
+
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=4}
+idents.use = "CAF.sub.annotation"
+# idents.use = "CAF.sub"
+
+Idents(seu.caf) = idents.use
+cells = CellsByIdentities(seu.caf)
+##
+niche.average = sapply(cells, function(niche.cells) {
+  colMeans(niche.mat.norm[niche.cells, , drop = FALSE])
+})
+colnames(niche.average) = colnames(niche.average)
+niche.average
+
+## stack plot
+row.order = c("Tumor/Epi", "CAF", "Endo", "Macrophage-1", "Macrophage-2", 
+              "Neutrophil", "Mast", "Plasma", "B cell", "T cell")
+niche.average = niche.average[row.order, ]
+
+data.plot = niche.average %>% as.data.frame() %>% 
+  mutate(niche = factor(rownames(.), levels = row.order)) %>% 
+  pivot_longer(cols = 1:ncol(niche.average), names_to = "CAF.sub", values_to = "Fraction")
+
+ggplot(data.plot, aes(CAF.sub, Fraction, fill = niche)) + 
+  geom_col() + 
+  ggsci::scale_fill_d3("category20") + 
+  xlab("") + ylab("Fraction of cell types") + 
+  theme_minimal(base_size = 15) + 
+  theme(axis.text = element_text(color = "black")) +
+  RotatedAxis()
+```
+
+```{r, dev='cairo_pdf', fig.width=5, fig.height=6}
+idents.use = "CAF.sub.annotation"
+
+annotation = seu.caf@meta.data[[idents.use]]
+names(annotation) = rownames(seu.caf@meta.data)
+colors1 = ggsci::pal_aaas()(unique(annotation) %>% length())
+names(colors1) = unique(annotation)
+
+colors2 = ggsci::pal_d3()(unique(seu.caf$sample.ID) %>% length())
+names(colors2) = unique(seu.caf$sample.ID)
+
+r.anno <- rowAnnotation(
+  "CAF cluster" = annotation,
+  "Section" = factor(seu.caf$sample.ID),
+  col = list(
+    "CAF cluster" = colors1,
+    "Section" = colors2
+  ),
+  show_annotation_name = F, show_legend = TRUE
+)
+
+draw.ht = Heatmap(
+  matrix = niche.mat.norm, 
+  name = "fraction", 
+  cluster_rows = F,
+  cluster_columns = T,
+  border = T, 
+  left_annotation = r.anno,
+  row_split = annotation, 
+  row_title = NULL, 
+  show_row_names = F)
+draw(draw.ht)
+```
+
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=4}
+data.plot = FetchData(seu.caf, vars = c("CAF.sub.annotation", "sample.ID"))
+head(data.plot)
+
+# 计算每个 sample.ID 中不同 CAF.sub 的数量
+data.plot.summary <- data.plot %>%
+  count(sample.ID, CAF.sub.annotation) %>%
+  group_by(sample.ID) %>%
+  mutate(fraction = n / sum(n)) %>%
+  ungroup()
+
+# 绘制堆叠百分比条形图
+ggplot(data.plot.summary, aes(x = sample.ID, y = fraction, fill = CAF.sub.annotation)) +
+  geom_bar(stat = "identity", position = "stack", color = "white", width = 0.8) +
+  scale_y_continuous(labels = scales::percent) +
+  theme_minimal(base_size = 12) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text = element_text(color = "black"),
+    panel.grid = element_blank()
+  ) +
+  labs(
+    x = "",
+    y = "CAF subtype proportion (%)",
+    fill = "CAF subtype"
+  ) +
+  ggsci::scale_fill_aaas()
+```
+

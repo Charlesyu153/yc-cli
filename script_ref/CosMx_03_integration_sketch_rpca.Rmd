@@ -1,0 +1,699 @@
+---
+title: 'CosMx: Cross Slides Integration'
+author: "Jarning"
+date: "2025-10-18"
+output: html_document
+---
+
+```{r setup}
+library(Seurat)
+library(tidyverse)
+library(glue)
+library(qs)
+reticulate::use_python("/home/jarning/miniconda3/envs/test-env/bin/python")
+reticulate::py_config()
+sc = reticulate::import("scanpy")
+
+samples = c("Lung5_Rep1", "Lung5_Rep2", "Lung5_Rep3", "Lung6", 
+            "Lung9_Rep1", "Lung9_Rep2", "Lung12", "Lung13")
+```
+
+## step1. 数据转换：H5ad -> Seurat
+
+```{r}
+## transfer .h5ad to .qs (Seurat V5)
+LoadH5ad = function(h5ad.file) {
+  adata = sc$read_h5ad(h5ad.file)
+  counts = adata$X
+  meta.data = adata$obs
+  features = adata$var_names$to_list()
+  rownames(counts) = rownames(meta.data)
+  colnames(counts) = features
+  seu = CreateSeuratObject(counts = t(counts), meta.data = meta.data)
+  coords = as.matrix(adata$obsm['global'])
+  rownames(coords) = rownames(meta.data)
+  colnames(coords) = paste0("spatial_", 1:2)
+  seu[["spatial"]] = CreateDimReducObject(coords, key = "spatial_")
+  seu = subset(seu, nCount_RNA >= 20)
+  return(seu)
+}
+
+for (sn in samples) {
+  print(glue("Processing {sn} ..."))
+  in.file = glue("../io/CosMx/{sn}.h5ad")
+  seu = LoadH5ad(in.file)
+  seu = RenameCells(seu, add.cell.id = sn)
+  seu$sample.ID = sn
+  qsave(seu, glue("CosMx_data/{sn}.SeuratV5.qs"))
+}
+```
+
+## step2. 数据抽样
+
+随机抽样 vs Sketch抽样
+
+```{r}
+## 参数
+
+n.cells = 10000 # 抽样的细胞数
+method = "LeverageScore" # sketch抽样
+# method = "Uniform" # 随机抽样
+output.path = "CosMx_data/sketch/rpca/sketch"
+dir.create(output.path, recursive = T, showWarnings = F)
+
+total_samples <- length(samples)
+for (i in seq_along(samples)) {
+  sn <- samples[i]
+  cat("Processing sample", i, "of", total_samples, ":", sn, "\n")
+  
+  output.file <- glue("{output.path}/cells.{sn}.txt")
+  seurat.file <- glue("CosMx_data/{sn}.SeuratV5.qs")
+  seu <- qread(seurat.file)
+  
+  seu <- NormalizeData(seu)
+  seu <- FindVariableFeatures(seu)
+  seu <- SketchData(object = seu, 
+                    ncells = n.cells, 
+                    method = method, 
+                    sketched.assay = "sketch")
+  
+  cells.use <- Cells(seu[["sketch"]])
+  writeLines(cells.use, output.file)
+}
+```
+
+
+## step3. 构建核心图谱(core map)
+
+### 第一轮：数据质控、初步注释
+
+#### 整合
+
+```{r}
+seu.list = pbapply::pblapply(samples, function(sn) {
+  seurat.file = glue("CosMx_data/{sn}.SeuratV5.qs")
+  cells.file = glue("CosMx_data/sketch/rpca/sketch/cells.{sn}.txt")
+  seu = qread(seurat.file)
+  cells.use = readLines(cells.file)
+  seu = subset(seu, cells = cells.use)
+  return(seu)
+})
+
+## Merge
+ref = merge(x = seu.list[[1]], y = seu.list[-1])
+Layers(ref)
+
+rm(seu.list)
+gc()
+
+## Process by sample
+ref = NormalizeData(ref)
+
+ref = ScaleData(ref, verbose = F)
+ref = RunPCA(ref, features = Features(ref), verbose = F) # 注意: 对于CosMx-1k，我们不需要计算HVGs
+
+## Anchored-rPCA integration
+npcs = 25
+ref = IntegrateLayers(ref, 
+                      features = Features(ref),
+                      method = RPCAIntegration, 
+                      orig.reduction = "pca", 
+                      new.reduction = "rpca", # cca
+                      dims = 1:npcs,
+                      k.anchor = 20, 
+                      verbose = T)
+
+## Cluster & UMAP
+ref = FindNeighbors(ref, reduction = "rpca", dims = 1:npcs)
+ref = FindClusters(ref, resolution = 0.5)
+ref = RunUMAP(ref, 
+              reduction = "rpca", 
+              reduction.name = "umap", 
+              dims = 1:npcs, 
+              return.model = T, ## 如果要进行reference mapping，这里必须是TRUE
+              verbose = F)
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+DimPlot(ref, reduction = "umap", group.by = "sample.ID")
+DimPlot(ref, reduction = "umap", group.by = "seurat_clusters", label = T)
+FeaturePlot(ref, reduction = "umap", features = "Mean.PanCK", max.cutoff = 'q95')
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=3}
+VlnPlot(ref, features = "nCount_RNA", pt.size = 0) + NoLegend()
+VlnPlot(ref, features = "Mean.PanCK", pt.size = 0) + NoLegend()
+```
+
+
+#### Markers
+
+```{r, dev='cairo_pdf', fig.width=18, fig.height=4}
+Idents(ref) = "seurat_clusters"
+seu.ds = subset(ref, downsample = 1000)
+seu.ds = JoinLayers(seu.ds)
+seu.ds = NormalizeData(seu.ds)
+all.markers = FindAllMarkers(seu.ds, only.pos = T)
+top5.markers = all.markers %>% group_by(cluster) %>% slice_head(n = 5) %>% pull(gene) %>% unique()
+
+DotPlot(ref, features = top5.markers) + RotatedAxis()
+```
+
+#### 手动注释
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+ref$annotation = "LowQ"
+ref$annotation[ref$seurat_clusters %in% c(0,2,6,10)] = "Tumor"
+
+ref$annotation[ref$seurat_clusters %in% c(1)] = "CAF"
+ref$annotation[ref$seurat_clusters %in% c(8)] = "Endo"
+
+ref$annotation[ref$seurat_clusters %in% c(12)] = "Mast"
+
+ref$annotation[ref$seurat_clusters %in% c(3)] = "Macrophage"
+ref$annotation[ref$seurat_clusters %in% c(9)] = "Neutrophil"
+
+ref$annotation[ref$seurat_clusters %in% c(4)] = "T cell"
+ref$annotation[ref$seurat_clusters %in% c(11)] = "B cell"
+ref$annotation[ref$seurat_clusters %in% c(7)] = "Plasma"
+
+
+DimPlot(ref, reduction = "umap", group.by = "annotation", label = T) +
+  ggsci::scale_color_d3("category20")
+```
+
+#### 保存参考模型
+
+```{r}
+ref = JoinLayers(ref)
+ref[["RNA"]]@layers$scale.data = NULL
+qsave(ref, "CosMx_data/sketch/rpca/LUAD_core.SeuratV5.round1.qs")
+```
+
+### 第二轮：去除低质量细胞后重新整合
+
+#### 整合
+
+```{r}
+ref = qread("CosMx_data/sketch/rpca/LUAD_core.SeuratV5.round1.qs")
+ref = subset(ref, annotation %in% c("LowQ"), invert = TRUE)
+counts = LayerData(ref, layer = "counts")
+metadata = ref@meta.data
+ref = CreateSeuratObject(counts, meta.data = metadata)
+rm(counts)
+gc()
+ref = split(ref, f = ref$sample.ID)
+
+## Process by sample
+ref = NormalizeData(ref)
+ref = ScaleData(ref, verbose = F)
+ref = RunPCA(ref, features = Features(ref), verbose = F) # 注意: 对于CosMx-1k，我们不需要计算HVGs
+
+## Anchored-rPCA integration
+npcs = 25
+ref = IntegrateLayers(ref, 
+                      features = Features(ref),
+                      method = RPCAIntegration, 
+                      orig.reduction = "pca", 
+                      new.reduction = "rpca",
+                      dims = 1:npcs,
+                      k.anchor = 20, 
+                      verbose = T)
+
+## Cluster & UMAP
+ref = FindNeighbors(ref, reduction = "rpca", dims = 1:npcs)
+ref = FindClusters(ref, resolution = 0.5)
+ref = RunUMAP(ref, 
+              reduction = "rpca", 
+              reduction.name = "umap", 
+              dims = 1:npcs, 
+              return.model = T, ## 如果要进行reference mapping，这里必须是TRUE
+              verbose = F)
+```
+
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+DimPlot(ref, reduction = "umap", group.by = "sample.ID")
+DimPlot(ref, reduction = "umap", group.by = "seurat_clusters", label = T)
+DimPlot(ref, reduction = "umap", group.by = "annotation", label = T)
+FeaturePlot(ref, reduction = "umap", features = "Mean.PanCK", max.cutoff = 'q95')
+```
+
+
+#### 保存参考模型
+
+```{r}
+ref = JoinLayers(ref)
+ref[["RNA"]]@layers$scale.data = NULL
+qsave(ref, "CosMx_data/sketch/rpca/LUAD_core.SeuratV5.round2.qs")
+```
+
+### 第三轮：整合TME
+
+#### 整合
+
+```{r}
+ref = qread("CosMx_data/sketch/rpca/LUAD_core.SeuratV5.round2.qs")
+ref = subset(ref, annotation %in% c("Tumor"), invert = TRUE)
+
+counts = LayerData(ref, layer = "counts")
+metadata = ref@meta.data
+ref = CreateSeuratObject(counts, meta.data = metadata)
+rm(counts)
+gc()
+ref = split(ref, f = ref$sample.ID)
+
+## Process by sample
+ref = NormalizeData(ref)
+ref = ScaleData(ref, verbose = F)
+ref = RunPCA(ref, features = Features(ref), verbose = F) # 注意: 对于CosMx-1k，我们不需要计算HVGs
+
+## Anchored-rPCA integration
+npcs = 25
+ref = IntegrateLayers(ref, 
+                      features = Features(ref),
+                      method = RPCAIntegration, 
+                      orig.reduction = "pca", 
+                      new.reduction = "rpca",
+                      dims = 1:npcs,
+                      k.anchor = 20, 
+                      verbose = T)
+
+## Cluster & UMAP
+ref = FindNeighbors(ref, reduction = "rpca", dims = 1:npcs)
+ref = FindClusters(ref, resolution = 0.5)
+ref = RunUMAP(ref, 
+              reduction = "rpca", 
+              reduction.name = "umap", 
+              dims = 1:npcs, 
+              return.model = T, ## 如果要进行reference mapping，这里必须是TRUE
+              verbose = F)
+```
+
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+DimPlot(ref, reduction = "umap", group.by = "sample.ID")
+DimPlot(ref, reduction = "umap", group.by = "seurat_clusters", label = T)
+DimPlot(ref, reduction = "umap", group.by = "annotation", label = T)
+FeaturePlot(ref, reduction = "umap", features = "Mean.PanCK", max.cutoff = 'q95')
+```
+
+#### Markers
+
+```{r, dev='cairo_pdf', fig.width=18, fig.height=4}
+Idents(ref) = "seurat_clusters"
+seu.ds = subset(ref, downsample = 1000)
+seu.ds = JoinLayers(seu.ds)
+seu.ds = NormalizeData(seu.ds)
+all.markers = FindAllMarkers(seu.ds, only.pos = T)
+top5.markers = all.markers %>% group_by(cluster) %>% slice_head(n = 5) %>% pull(gene) %>% unique()
+
+DotPlot(ref, features = top5.markers) + RotatedAxis()
+```
+
+#### 手动注释
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+ref$annotation[ref$seurat_clusters %in% c(0,4,11,12)] = "CAF"
+ref$annotation[ref$seurat_clusters %in% c(7)] = "Endo"
+
+ref$annotation[ref$seurat_clusters %in% c(10)] = "Mast"
+
+ref$annotation[ref$seurat_clusters %in% c(1)] = "Macrophage-1"
+ref$annotation[ref$seurat_clusters %in% c(3)] = "Macrophage-2"
+ref$annotation[ref$seurat_clusters %in% c(6)] = "Neutrophil"
+
+ref$annotation[ref$seurat_clusters %in% c(2,9)] = "T cell"
+ref$annotation[ref$seurat_clusters %in% c(8)] = "B cell"
+ref$annotation[ref$seurat_clusters %in% c(5)] = "Plasma"
+
+
+DimPlot(ref, reduction = "umap", group.by = "annotation", label = T) +
+  ggsci::scale_color_d3("category20")
+```
+
+#### 保存参考模型
+
+```{r}
+ref = JoinLayers(ref)
+ref[["RNA"]]@layers$scale.data = NULL
+qsave(ref, "CosMx_data/sketch/rpca/LUAD_core.SeuratV5.round3.qs")
+```
+
+## step4. 参考映射
+
+### 第一轮：标记LowQ cells
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+source("../utils/R/label_transfer.R")
+source("../utils/R/io.R")
+
+npcs = 25
+K = 20 # K for knn label transfer
+
+ref = qread("CosMx_data/sketch/rpca/LUAD_core.SeuratV5.round1.qs")
+output.path = "CosMx_data/sketch/rpca/projection"
+dir.create(output.path, recursive = T, showWarnings = F)
+
+total_samples = length(samples)
+for (i in seq_along(samples)) {
+  sn = samples[i]
+  cat("Processing sample", i, "of", total_samples, ":", sn, "\n")
+  query.file = glue("CosMx_data/{sn}.SeuratV5.qs")
+  output.file = glue("{output.path}/{sn}.SeuratV5.round1.qs")
+  message(glue("Loading {query.file} ..."))
+  query = qread(query.file)
+  query = NormalizeData(query)
+  message("Finding transfer anchors ...")
+  anchors = FindTransferAnchors(reference = ref, 
+                                features = Features(ref),
+                                query = query, 
+                                dims = 1:npcs,
+                                reference.reduction = "rpca")
+  
+  message("Mapping to reference ...")
+  query = MapQuery(anchorset = anchors, 
+                   reference = ref, 
+                   query = query, 
+                   reference.reduction = "rpca", 
+                   reduction.model = "umap")
+  
+  message("Label transfer ...")
+  results = transfer_labels(ref = ref, ref.reduction = "rpca",
+                            query = query, query.reduction = "ref.rpca",
+                            dims = 1:npcs,
+                            ref.label.names = c("annotation"),
+                            k = K,
+                            n_cores = 10)
+  query = AddMetaData(query, results)
+  
+  message(glue("Saving to {output.file} ..."))
+  slim_save(query, output.file, layers = c("counts"), 
+            slots = c("ref.rpca", "ref.umap", "spatial"))
+}
+
+query = qread("CosMx_data/sketch/rpca/projection/Lung6.SeuratV5.round1.qs")
+DimPlot(query, reduction = "ref.umap", group.by = "annotation_pred", label = T)
+
+for (sn in samples) {
+  seurat.file = glue("{output.path}/{sn}.SeuratV5.round1.qs")
+  output.file = glue("{output.path}/{sn}.LowQ_cells.txt")
+  query = qread(seurat.file)
+  cells = rownames(subset(query@meta.data, annotation_pred == "LowQ"))
+  writeLines(cells, output.file)
+}
+```
+
+### 第二轮：标记肿瘤细胞
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+source("../utils/R/label_transfer.R")
+source("../utils/R/io.R")
+
+npcs = 25
+K = 20 # K for knn label transfer
+
+ref = qread("CosMx_data/sketch/rpca/LUAD_core.SeuratV5.round2.qs")
+output.path = "CosMx_data/sketch/rpca/projection"
+dir.create(output.path, recursive = T, showWarnings = F)
+
+total_samples = length(samples)
+for (i in seq_along(samples)) {
+  sn = samples[i]
+  cat("Processing sample", i, "of", total_samples, ":", sn, "\n")
+  query.file = glue("CosMx_data/{sn}.SeuratV5.qs")
+  output.file = glue("{output.path}/{sn}.SeuratV5.round2.qs")
+  lowQ.file = glue("{output.path}/{sn}.LowQ_cells.txt")
+  
+  message(glue("Loading {query.file} ..."))
+  query = qread(query.file)
+  cells.drop = readLines(lowQ.file)
+  query = subset(query, cells = cells.drop, invert=T)
+  query = NormalizeData(query)
+  message("Finding transfer anchors ...")
+  anchors = FindTransferAnchors(reference = ref, 
+                                features = Features(ref),
+                                query = query, 
+                                dims = 1:npcs,
+                                reference.reduction = "rpca")
+  
+  message("Mapping to reference ...")
+  query = MapQuery(anchorset = anchors, 
+                   reference = ref, 
+                   query = query, 
+                   reference.reduction = "rpca", 
+                   reduction.model = "umap")
+  
+  message("Label transfer ...")
+  results = transfer_labels(ref = ref, ref.reduction = "rpca",
+                            query = query, query.reduction = "ref.rpca",
+                            dims = 1:npcs,
+                            ref.label.names = c("annotation"),
+                            k = K,
+                            n_cores = 10)
+  query = AddMetaData(query, results)
+  
+  message(glue("Saving to {output.file} ..."))
+  slim_save(query, output.file, layers = c("counts"), 
+            slots = c("ref.rpca", "ref.umap", "spatial"))
+}
+
+query = qread("CosMx_data/sketch/rpca/projection/Lung5_Rep2.SeuratV5.round2.qs")
+DimPlot(query, reduction = "ref.umap", group.by = "annotation_pred", label = T)
+FeaturePlot(query, reduction = "ref.umap", features = "annotation_prob")
+
+# DimPlot(query, reduction = "ref.umap", group.by = "predicted.annotation", label = T)
+# FeaturePlot(query, reduction = "ref.umap", features = "predicted.annotation.score")
+
+for (sn in samples) {
+  seurat.file = glue("{output.path}/{sn}.SeuratV5.round2.qs")
+  output.file = glue("{output.path}/{sn}.Tumor_cells.txt")
+  query = qread(seurat.file)
+  cells = rownames(subset(query@meta.data, annotation_pred == "Tumor"))
+  writeLines(cells, output.file)
+}
+```
+
+
+### 第三轮：标记TME
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+source("../utils/R/label_transfer.R")
+source("../utils/R/io.R")
+
+npcs = 25
+K = 20 # K for knn label transfer
+
+ref = qread("CosMx_data/sketch/rpca/LUAD_core.SeuratV5.round3.qs")
+output.path = "CosMx_data/sketch/rpca/projection"
+dir.create(output.path, recursive = T, showWarnings = F)
+
+total_samples = length(samples)
+for (i in seq_along(samples)) {
+  sn = samples[i]
+  cat("Processing sample", i, "of", total_samples, ":", sn, "\n")
+  query.file = glue("CosMx_data/{sn}.SeuratV5.qs")
+  output.file = glue("{output.path}/{sn}.SeuratV5.round3.qs")
+  lowQ.file = glue("{output.path}/{sn}.LowQ_cells.txt")
+  tumor.file = glue("{output.path}/{sn}.Tumor_cells.txt")
+  
+  message(glue("Loading {query.file} ..."))
+  query = qread(query.file)
+  cells.drop = c(
+    readLines(lowQ.file),
+    readLines(tumor.file)
+  )
+  query = subset(query, cells = cells.drop, invert=T)
+  query = NormalizeData(query)
+  message("Finding transfer anchors ...")
+  anchors = FindTransferAnchors(reference = ref, 
+                                features = Features(ref),
+                                query = query, 
+                                dims = 1:npcs,
+                                reference.reduction = "rpca")
+  
+  message("Mapping to reference ...")
+  query = MapQuery(anchorset = anchors, 
+                   reference = ref, 
+                   query = query, 
+                   reference.reduction = "rpca", 
+                   reduction.model = "umap")
+  
+  message("Label transfer ...")
+  
+  results = transfer_labels(ref = ref, ref.reduction = "rpca", 
+                            query = query, query.reduction = "ref.rpca", 
+                            dims = 1:npcs, 
+                            ref.label.names = c("annotation"), 
+                            k = K, 
+                            n_cores = 10)
+  query = AddMetaData(query, results)
+  
+  message(glue("Saving to {output.file} ..."))
+  slim_save(query, output.file, layers = c("counts"), 
+            slots = c("ref.rpca", "ref.umap", "spatial"))
+}
+
+query = qread("CosMx_data/sketch/rpca/projection/Lung5_Rep1.SeuratV5.round3.qs")
+DimPlot(query, reduction = "ref.umap", group.by = "annotation_pred", label = T)
+FeaturePlot(query, reduction = "ref.umap", features = "annotation_prob")
+
+for (sn in samples) {
+  seurat.file = glue("{output.path}/{sn}.SeuratV5.round3.qs")
+  output.file = glue("{output.path}/{sn}.TME_cells.txt")
+  query = qread(seurat.file)
+  cells = rownames(query@meta.data)
+  writeLines(cells, output.file)
+}
+```
+
+## step5. 整理结果
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+total_samples = length(samples)
+for (i in seq_along(samples)) {
+  sn = samples[i]
+  cat("Processing sample", i, "of", total_samples, ":", sn, "\n")
+  output.path = "CosMx_data/sketch/rpca/projection"
+  query.file = glue("{output.path}/{sn}.SeuratV5.round1.qs")
+  seurat.TME.file = glue("{output.path}/{sn}.SeuratV5.round3.qs")
+  lowQ.file = glue("{output.path}/{sn}.LowQ_cells.txt")
+  tumor.file = glue("{output.path}/{sn}.Tumor_cells.txt")
+  output.file = glue("{output.path}/{sn}.SeuratV5.annotated.qs")
+  figure.file = glue("{output.path}/{sn}.SeuratV5.annotated.png")
+  
+  query = qread(query.file)
+  query.TME = qread(seurat.TME.file)
+  lowQ.cells = readLines(lowQ.file)
+  tumor.cells = readLines(tumor.file)
+  
+  query$annotation = ""
+  query$annotation[lowQ.cells] = "LowQ"
+  query$annotation[tumor.cells] = "Tumor/Epi"
+  query$annotation[names(query.TME$annotation_pred)] = query.TME$annotation_pred
+  qsave(query, output.file)
+  
+  p = DimPlot(query, reduction = "ref.umap", group.by = "annotation", label = T) +
+    ggsci::scale_color_d3("category20")
+  ggsave(figure.file, plot = p, width = 6, height = 5, units = "in", dpi = 600)
+}
+```
+
+```{r}
+metadata = pbapply::pblapply(samples, function(sn) {
+  query1 = qread(glue("{output.path}/{sn}.SeuratV5.round1.qs"))
+  query2 = qread(glue("{output.path}/{sn}.SeuratV5.round2.qs"))
+  query3 = qread(glue("{output.path}/{sn}.SeuratV5.round3.qs"))
+  
+  ref.emb1 = Embeddings(query1, reduction = "ref.umap") %>% as.data.frame()
+  ref.emb2 = Embeddings(query2, reduction = "ref.umap") %>% as.data.frame()
+  ref.emb3 = Embeddings(query3, reduction = "ref.umap") %>% as.data.frame()
+  colnames(ref.emb1) = c("umap_1.r1", "umap_2.r1")
+  colnames(ref.emb2) = c("umap_1.r2", "umap_2.r2")
+  colnames(ref.emb3) = c("umap_1.r3", "umap_2.r3")
+  
+  ref.emb1 = ref.emb1 %>% mutate(cell.ID = rownames(.), .before = 1)
+  ref.emb2 = ref.emb2 %>% mutate(cell.ID = rownames(.), .before = 1)
+  ref.emb3 = ref.emb3 %>% mutate(cell.ID = rownames(.), .before = 1)
+  
+  metadata = query1@meta.data %>% mutate(cell.ID = rownames(.), .before = 1)
+  
+  metadata$annotation.r1 = query1$annotation_pred[rownames(metadata)]
+  metadata$annotation.r2 = query2$annotation_pred[rownames(metadata)]
+  metadata$annotation.r3 = query3$annotation_pred[rownames(metadata)]
+  metadata = metadata %>% 
+    left_join(ref.emb1, by = "cell.ID") %>% 
+    left_join(ref.emb2, by = "cell.ID") %>% 
+    left_join(ref.emb3, by = "cell.ID")
+  return(metadata)
+}) %>% do.call(rbind, .)
+
+
+metadata$annotation = metadata$annotation.r3
+metadata$annotation[is.na(metadata$annotation)] = metadata$annotation.r2[is.na(metadata$annotation)]
+metadata$annotation[is.na(metadata$annotation)] = metadata$annotation.r1[is.na(metadata$annotation)]
+write_tsv(metadata, "CosMx_data/sketch/rpca/LUAD_metadata.tsv")
+```
+
+## Step6. 绘图
+
+```{r, dev='cairo_pdf', fig.width=14, fig.height=5}
+metadata = read_tsv("CosMx_data/sketch/rpca/LUAD_metadata.tsv")
+
+p1 = ggplot(metadata, aes(umap_1.r1, umap_2.r1, color = annotation.r1)) + 
+  geom_point(size = .1, alpha = .1) + 
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1))) + 
+  ggsci::scale_color_d3("category20") + 
+  theme_bw(base_size = 15)
+
+p2 = ggplot(metadata, aes(umap_1.r1, umap_2.r1, color = sample.ID)) + 
+  geom_point(size = .1, alpha = .1) + 
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1))) + 
+  ggsci::scale_color_d3("category20") + 
+  theme_bw(base_size = 15)
+
+p1 + p2
+
+## 
+p1 = ggplot(metadata %>% filter(!is.na(annotation.r2)), 
+       aes(umap_1.r2, umap_2.r2, color = annotation.r2)) + 
+  geom_point(size = .1, alpha = .1) + 
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1))) + 
+  ggsci::scale_color_d3("category20") + 
+  theme_bw(base_size = 15)
+
+p2 = ggplot(metadata %>% filter(!is.na(annotation.r2)), 
+       aes(umap_1.r2, umap_2.r2, color = sample.ID)) + 
+  geom_point(size = .1, alpha = .1) + 
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1))) + 
+  ggsci::scale_color_d3("category20") + 
+  theme_bw(base_size = 15)
+
+p1 + p2
+
+##
+p1 = ggplot(metadata %>% filter(!is.na(annotation.r3)), 
+       aes(umap_1.r3, umap_2.r3, color = annotation.r3)) + 
+  geom_point(size = .1, alpha = .1) + 
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1))) + 
+  ggsci::scale_color_d3("category20") + 
+  theme_bw(base_size = 15)
+
+p2 = ggplot(metadata %>% filter(!is.na(annotation.r3)), 
+       aes(umap_1.r3, umap_2.r3, color = sample.ID)) + 
+  geom_point(size = .1, alpha = .1) + 
+  guides(color = guide_legend(override.aes = list(size = 3, alpha = 1))) + 
+  ggsci::scale_color_d3("category20") + 
+  theme_bw(base_size = 15)
+
+p1 + p2
+```
+
+```{r, dev='cairo_pdf', fig.width=5, fig.height=4}
+data.plot = metadata %>% 
+  select(sample.ID, annotation) %>% 
+  filter(annotation != "LowQ")
+
+data.summary <- data.plot %>%
+  count(sample.ID, annotation) %>%
+  group_by(sample.ID) %>%
+  mutate(freq = n / sum(n))  # 可选：计算百分比
+
+# 绘制堆叠柱状图
+ggplot(data.summary, aes(x = sample.ID, y = freq, fill = annotation)) +
+  geom_col(position = "stack") +
+  scale_y_continuous(labels = scales::percent_format()) +
+  ggsci::scale_fill_d3("category20") + 
+  theme_minimal() +
+  labs(
+    x = "Sample ID",
+    y = "Proportion",
+    fill = "Annotation",
+    title = "Relative cell type composition per sample"
+  ) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+```
+

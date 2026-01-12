@@ -1,0 +1,239 @@
+---
+title: 'CosMx: Cross Slides Integration'
+author: "Jarning"
+date: "2025-10-18"
+output: html_document
+---
+
+```{r setup}
+library(Seurat)
+library(tidyverse)
+library(glue)
+library(qs)
+reticulate::use_python("/home/jarning/miniconda3/envs/test-env/bin/python")
+reticulate::py_config()
+sc = reticulate::import("scanpy")
+
+samples = c("Lung5_Rep1", "Lung5_Rep2", "Lung5_Rep3", "Lung6", 
+            "Lung9_Rep1", "Lung9_Rep2", "Lung12", "Lung13")
+```
+
+```{r}
+## transfer .h5ad to .qs (Seurat V5)
+LoadH5ad = function(h5ad.file) {
+  adata = sc$read_h5ad(h5ad.file)
+  counts = adata$X
+  meta.data = adata$obs
+  features = adata$var_names$to_list()
+  rownames(counts) = rownames(meta.data)
+  colnames(counts) = features
+  seu = CreateSeuratObject(counts = t(counts), meta.data = meta.data)
+  coords = as.matrix(adata$obsm['global'])
+  rownames(coords) = rownames(meta.data)
+  colnames(coords) = paste0("spatial_", 1:2)
+  seu[["spatial"]] = CreateDimReducObject(coords, key = "spatial_")
+  seu = subset(seu, nCount_RNA >= 20)
+  return(seu)
+}
+
+for (sn in samples) {
+  print(glue("Processing {sn} ..."))
+  in.file = glue("../io/CosMx/{sn}.h5ad")
+  seu = LoadH5ad(in.file)
+  seu = RenameCells(seu, add.cell.id = sn)
+  seu$sample.ID = sn
+  qsave(seu, glue("CosMx_data/{sn}.SeuratV5.qs"))
+}
+```
+
+```{r}
+## subsampling sketch
+seu.list = lapply(samples, function(sn) {
+  qread(glue("CosMx_data/{sn}.SeuratV5.qs"))
+})
+names(seu.list) = samples
+
+## Merge & Split
+ref = merge(x = seu.list[[1]], y = seu.list[-1])
+Layers(ref)
+
+rm(seu.list)
+gc()
+```
+
+```{r}
+ref = NormalizeData(ref)
+ref = ScaleData(ref, verbose = F)
+ref = RunPCA(ref, features = Features(ref), verbose = F)
+```
+
+```{r}
+## Anchored-rPCA integration
+npcs = 25
+ref = IntegrateLayers(ref, 
+                      method = RPCAIntegration, 
+                      features = Features(ref),
+                      orig.reduction = "pca", 
+                      new.reduction = "rpca",
+                      dims = 1:npcs,
+                      k.anchor = 20, 
+                      verbose = T)
+```
+
+```{r}
+## Cluster & Dr
+ref = FindNeighbors(ref, reduction = "rpca", dims = 1:npcs)
+ref = FindClusters(ref, resolution = 0.5)
+ref = RunUMAP(ref, reduction = "rpca", reduction.name = "umap", dims = 1:npcs, verbose = F)
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+DimPlot(ref, reduction = "umap", group.by = "sample.ID")
+DimPlot(ref, reduction = "umap", group.by = "seurat_clusters", label = T)
+FeaturePlot(ref, reduction = "umap", features = "Mean.PanCK", max.cutoff = 'q95')
+```
+
+```{r, dev='cairo_pdf', fig.width=20, fig.height=5}
+Idents(ref) = "seurat_clusters"
+seu.ds = subset(ref, downsample = 1000)
+seu.ds = JoinLayers(seu.ds)
+seu.ds = NormalizeData(seu.ds)
+all.markers = FindAllMarkers(seu.ds, only.pos = T)
+top5.markers = all.markers %>% group_by(cluster) %>% slice_head(n = 5) %>% pull(gene) %>% unique()
+
+DotPlot(ref, features = top5.markers) + RotatedAxis()
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+ref$annotation = "LowQ"
+ref$annotation[ref$seurat_clusters %in% c(0,2,8)] = "Tumor"
+ref$annotation[ref$seurat_clusters %in% c(7,17)] = "LTF+ Epi"
+
+ref$annotation[ref$seurat_clusters %in% c(5,13,16)] = "CAF"
+ref$annotation[ref$seurat_clusters == 11] = "Endo"
+
+ref$annotation[ref$seurat_clusters == 15] = "Mast"
+
+ref$annotation[ref$seurat_clusters == 9] = "Macrophage-1"
+ref$annotation[ref$seurat_clusters %in% c(10,14)] = "Macrophage-2"
+ref$annotation[ref$seurat_clusters == 4] = "Neutrophil"
+
+ref$annotation[ref$seurat_clusters == 1] = "T cell"
+ref$annotation[ref$seurat_clusters == 12] = "B cell"
+ref$annotation[ref$seurat_clusters == 6] = "Plasma"
+
+
+DimPlot(ref, reduction = "umap", group.by = "annotation", label = T, repel = T) + ggsci::scale_color_d3("category20")
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=3}
+VlnPlot(seu.ds, features = "nCount_RNA", pt.size = 0) + NoLegend()
+VlnPlot(seu.ds, features = "Mean.PanCK", pt.size = 0) + NoLegend()
+```
+
+
+```{r}
+source("../utils/R/io.R")
+dir.create("CosMx_data/denovo/rpca")
+ref = JoinLayers(ref)
+slim_save(ref, file = "CosMx_data/denovo/rpca/LUAD.SeuratV5.annotated.qs", 
+          layers = "counts", slots = c("pca", "rpca", "umap"))
+write.table(ref@meta.data, file = "CosMx_data/denovo/rpca/LUAD.annotated.obs.tsv", sep='\t', quote=F)
+```
+
+## TME
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+ref = qread("CosMx_data/denovo/rpca/LUAD.SeuratV5.annotated.qs")
+ref = subset(ref, annotation %in% c("Tumor", "LowQ", "LTF+ Epi"), invert = T)
+
+DimPlot(ref, reduction = "umap", group.by = "annotation", label = T, repel = T) + ggsci::scale_color_d3("category20")
+
+ref[["RNA"]] = split(ref[["RNA"]], f = ref$sample.ID)
+Layers(ref)
+```
+
+```{r}
+ref = NormalizeData(ref)
+ref = ScaleData(ref, verbose = F)
+ref = RunPCA(ref, features = Features(ref), verbose = F)
+
+npcs = 25
+ref = IntegrateLayers(ref, 
+                      method = RPCAIntegration, 
+                      features = Features(ref),
+                      orig.reduction = "pca", 
+                      new.reduction = "rpca",
+                      dims = 1:npcs,
+                      k.anchor = 20, 
+                      verbose = T)
+
+ref = FindNeighbors(ref, reduction = "rpca", dims = 1:npcs)
+ref = FindClusters(ref, resolution = 0.5)
+ref = RunUMAP(ref, reduction = "rpca", reduction.name = "umap", dims = 1:npcs, verbose = F)
+```
+
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+DimPlot(ref, reduction = "umap", group.by = "sample.ID")
+DimPlot(ref, reduction = "umap", group.by = "seurat_clusters", label = T)
+DimPlot(ref, reduction = "umap", group.by = "annotation", label = T)
+FeaturePlot(ref, reduction = "umap", features = "Mean.PanCK", max.cutoff = 'q95')
+```
+
+```{r, dev='cairo_pdf', fig.width=20, fig.height=5}
+Idents(ref) = "seurat_clusters"
+seu.ds = subset(ref, downsample = 1000)
+seu.ds = JoinLayers(seu.ds)
+seu.ds = NormalizeData(seu.ds)
+all.markers = FindAllMarkers(seu.ds, only.pos = T)
+top5.markers = all.markers %>% group_by(cluster) %>% slice_head(n = 5) %>% pull(gene) %>% unique()
+
+DotPlot(ref, features = top5.markers) + RotatedAxis()
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=5}
+ref$annotation[ref$seurat_clusters %in% c(0,5,13,14)] = "CAF"
+ref$annotation[ref$seurat_clusters == 7] = "Endo"
+
+ref$annotation[ref$seurat_clusters == 12] = "Mast"
+
+ref$annotation[ref$seurat_clusters %in% c(10,2)] = "Macrophage-1"
+ref$annotation[ref$seurat_clusters %in% c(8)] = "Macrophage-2"
+ref$annotation[ref$seurat_clusters %in% c(4,6)] = "Neutrophil"
+
+ref$annotation[ref$seurat_clusters %in% c(1,11)] = "T cell"
+ref$annotation[ref$seurat_clusters == 9] = "B cell"
+ref$annotation[ref$seurat_clusters == 3] = "Plasma"
+
+DimPlot(ref, reduction = "umap", group.by = "annotation", label = T, repel = T) + ggsci::scale_color_d3("category20")
+```
+
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=3}
+VlnPlot(seu.ds, features = "nCount_RNA", pt.size = 0) + NoLegend()
+VlnPlot(seu.ds, features = "Mean.PanCK", pt.size = 0) + NoLegend()
+```
+
+```{r}
+source("../utils/R/io.R")
+ref = JoinLayers(ref)
+slim_save(ref, file = "CosMx_data/denovo/rpca/LUAD_TME.SeuratV5.annotated.qs", 
+          layers = "counts", slots = c("pca", "rpca", "umap"))
+write.table(ref@meta.data, file = "CosMx_data/denovo/rpca/LUAD_TME.annotated.obs.tsv", sep='\t', quote=F)
+```
+
+```{r}
+meta.data = read.table("CosMx_data/denovo/rpca/LUAD.annotated.obs.tsv", row.names = 1, sep = "\t", header = T)
+meta.data.tumor = meta.data %>% filter(annotation %in% c("Tumor", "LTF+ Epi"))
+meta.data.TME = ref@meta.data
+
+dim(meta.data.tumor)
+dim(meta.data.TME)
+
+all(colnames(meta.data.tumor) == colnames(meta.data.TME)) # should be TRUE
+
+meta.data = rbind(meta.data.tumor, meta.data.TME)
+write.table(meta.data, file = "CosMx_data/denovo/rpca/LUAD.annotated.obs.final.tsv", sep='\t', quote=F)
+```
+

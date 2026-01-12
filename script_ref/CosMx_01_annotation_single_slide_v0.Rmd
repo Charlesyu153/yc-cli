@@ -1,0 +1,159 @@
+---
+title: 'CosMx: Annotation'
+author: "Jarning"
+date: "2025-10-14"
+output: html_document
+---
+
+```{r setup}
+# reticulate::use_python("/home/jarning/miniconda3/envs/spatial-data/bin/python")
+reticulate::use_python("/home/jarning/miniconda3/envs/test-env/bin/python")
+reticulate::py_config()
+sc = reticulate::import("scanpy")
+library(tidyverse)
+library(Seurat)
+```
+
+```{r, dev='cairo_pdf', fig.width=5, fig.height=5}
+adata = sc$read_h5ad("../io/CosMx_Lung5_Rep1.h5ad") # sc.hread_h5ad()
+counts = adata$X
+meta.data = adata$obs
+features = adata$var_names$to_list()
+
+dim(counts)
+dim(meta.data)
+
+counts[1:5,1:5]
+rownames(counts) = rownames(meta.data)
+colnames(counts) = features
+
+seu = CreateSeuratObject(counts = t(counts), meta.data = meta.data)
+rm(counts)
+rm(meta.data)
+
+coords = as.matrix(adata$obsm['global'])
+dim(coords)
+head(coords)
+rownames(coords) = rownames(seu@meta.data)
+colnames(coords) = paste0("spatial_", 1:2)
+seu[["spatial"]] = CreateDimReducObject(coords, key = "spatial_")
+
+rm(adata)
+gc()
+
+DimPlot(seu, reduction = "spatial", pt.size = 1, alpha = 1) + NoLegend()
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=4}
+VlnPlot(seu, features = c("nCount_RNA", "nFeature_RNA"), pt.size = 0)
+
+prop.table(table(seu$nFeature_RNA >= 20))
+prop.table(table(seu$nCount_RNA >= 20))
+
+seu = subset(seu, nFeature_RNA >= 20)
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=6}
+seu = NormalizeData(seu)
+seu = ScaleData(seu)
+seu = RunPCA(seu, features = Features(seu))
+
+# 如何决定PC数量
+# 方法1
+ElbowPlot(seu, ndims = 50)
+# 方法2
+vars = (seu[["pca"]]@stdev) ^ 2
+frac.of.vars = cumsum(vars) / sum(vars)
+npcs = which(frac.of.vars > 0.8) %>% min()
+
+seu = FindNeighbors(seu, reduction = "pca", dims = 1:npcs)
+seu = FindClusters(seu, resolution = 0.5)
+
+seu = RunUMAP(seu, reduction = "pca", dims = 1:npcs)
+
+DimPlot(seu, reduction = "umap", group.by = "seurat_clusters", label = T) + ggsci::scale_color_d3("category20")
+DimPlot(seu, reduction = "spatial", group.by = "seurat_clusters", label = F, pt.size = .1, alpha = 1) + ggsci::scale_color_d3("category20")
+
+Idents(seu) = "seurat_clusters"
+cells = CellsByIdentities(seu)
+lapply(seq_along(cells), function(i) {
+  cells.ht = cells[[i]]
+  DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1) + 
+    ggtitle(paste("cluster", names(cells)[i])) + 
+    theme(plot.title = element_text(hjust = .5)) + 
+    NoLegend()
+})
+```
+
+```{r, dev='cairo_pdf', fig.width=18, fig.height=4}
+Idents(seu) = "seurat_clusters"
+seu.ds = subset(seu, downsample = 500)
+all.markers = FindAllMarkers(seu.ds, only.pos = T)
+
+top5.markers = all.markers %>% group_by(cluster) %>% slice_head(n = 5) %>% pull(gene) %>% unique()
+
+DotPlot(seu, features = top5.markers) + RotatedAxis()
+```
+
+```{r, dev='cairo_pdf', fig.width=7, fig.height=4}
+VlnPlot(seu, features = "TPSAB1", pt.size = 0) + NoLegend()
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=6}
+FeaturePlot(seu, reduction = "umap", features = c("Mean.PanCK"))
+FeaturePlot(seu, reduction = "umap", features = c("nFeature_RNA"))
+FeaturePlot(seu, reduction = "umap", features = c("Mean.CD45"), max.cutoff = "q95")
+```
+
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=6}
+#####
+seu$annotation = "LowQ"
+
+seu$annotation[seu$seurat_clusters %in% c(1,9)] = "Tumor"
+seu$annotation[seu$seurat_clusters %in% c(10)] = "LTF+ Epi"
+
+seu$annotation[seu$seurat_clusters == 6] = "CAF"
+seu$annotation[seu$seurat_clusters %in% c(3)] = "Endo"
+
+## 没有定义Macrophage subsets，这里对CellNiche analysis会有什么影响?
+seu$annotation[seu$seurat_clusters %in% c(0)] = "Macrophage"
+seu$annotation[seu$seurat_clusters == 5] = "Neutrophil"
+
+seu$annotation[seu$seurat_clusters == 2] = "T cell"
+seu$annotation[seu$seurat_clusters == 4] = "B cell"
+seu$annotation[seu$seurat_clusters == 8] = "Plasma"
+
+seu$annotation[seu$seurat_clusters == 11] = "Mast"
+
+#####
+DimPlot(seu, reduction = "umap", group.by = "annotation", label = T) + ggsci::scale_color_d3("category20")
+DimPlot(seu, reduction = "spatial", group.by = "annotation", label = F, pt.size = .1, alpha = 1) + ggsci::scale_color_d3("category20") + NoLegend()
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=6}
+Idents(seu) = "annotation"
+cells = CellsByIdentities(seu)
+lapply(seq_along(cells), function(i) {
+  cells.ht = cells[[i]]
+  DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1) + 
+    ggtitle(names(cells)[i]) + 
+    theme(plot.title = element_text(hjust = .5)) + 
+    NoLegend()
+})
+```
+
+
+```{r}
+seu.export = CreateSeuratObject(
+  counts = LayerData(seu, layer = "counts"),
+  meta.data = seu@meta.data
+)
+seu.export[["RNA_nn"]] = seu[["RNA_nn"]]
+seu.export[["RNA_snn"]] = seu[["RNA_snn"]]
+seu.export[["pca"]] = seu[["pca"]]
+seu.export[["umap"]] = seu[["umap"]]
+seu.export[["spatial"]] = seu[["spatial"]]
+qs::qsave(seu.export, "CosMx_data/CosMx_Lung5_Rep1.SeuratV5.v0.qs")
+```
+

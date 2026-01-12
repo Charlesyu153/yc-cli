@@ -1,0 +1,241 @@
+---
+title: 'CosMx: Cell Niche'
+author: "Jarning"
+date: "2025-10-14"
+output: html_document
+---
+
+```{r setup}
+reticulate::use_python("/home/jarning/miniconda3/envs/test-env/bin/python") # for leiden
+reticulate::py_config()
+library(Seurat)
+library(tidyverse)
+library(ComplexHeatmap)
+```
+
+radius: 80 μm
+
+The pixel edge length is 120 nm. Thus, to convert to microns multiply the pixel value by 0.12028 µm per pixel.
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=6}
+seu = qs::qread("CosMx_data/CosMx_Lung5_Rep1.SeuratV5.v1.qs") # Macrophage-1, Macrophage-2
+seu = subset(seu, annotation != "LowQ")
+
+coords = Embeddings(seu, reduction = "spatial")
+coords = coords * 0.12028 # pixel to μm
+seu[["spatial"]]@cell.embeddings = coords
+
+DimPlot(seu, reduction = "spatial", group.by = "annotation", label = F, pt.size = .1, alpha = 1) + ggsci::scale_color_d3("category20") + coord_equal()
+```
+
+```{r, dev='cairo_pdf', fig.width=3, fig.height=2}
+Idents(seu) = "annotation"
+cells = CellsByIdentities(seu)
+annotation = factor(seu$annotation)
+query.cells = cells$CAF
+coords = Embeddings(seu, reduction = "spatial")
+ref.cells = rownames(coords)
+Q = coords[query.cells, , drop = FALSE]
+
+r.list = seq(10,100,5)
+
+data.use = pbapply::pblapply(r.list, function(r) {
+  nbrs = dbscan::frNN(coords, eps = r, query = Q, sort = FALSE)
+  ## number of niche cells 
+  median.cells = sapply(nbrs$id, length) %>% median()
+  data.frame(
+    r = r, 
+    median.cells = median.cells
+  )
+}) %>% do.call(rbind, .)
+
+# r=10μm
+#  +
+# +o+
+#  +
+
+ggplot(data.use, aes(r, median.cells)) + 
+  geom_point(size = 3) + 
+  geom_line(linewidth = 1) + 
+  geom_hline(yintercept = 150, linetype = "dashed", color = "blue") + 
+  xlab("r (μm)") + ylab("Median neighbor cells") + 
+  theme_minimal()
+```
+
+
+```{r}
+r = 60
+nbrs = dbscan::frNN(coords, eps = r, query = Q, sort = FALSE)
+sapply(nbrs$id, length) %>% summary()
+
+type.levels = levels(annotation)
+type.int = setNames(match(as.character(annotation), type.levels), names(annotation))
+
+niche.mat = pbapply::pblapply(nbrs$id, function(nn) {
+  tabulate(type.int[ref.cells[nn]], nbins = length(type.levels))
+}) %>% do.call(rbind, .)
+colnames(niche.mat) = type.levels
+
+# 修正sample-level的cell composite
+# To minimize cell composition bias at the sample-level and facilitate comparisons across samples, the cell type composition in the neighborhood region of each spatial CAF subtype was normalized by dividing it by the corresponding composition of the entire tissue section
+niche.mat.section = colSums(niche.mat)
+niche.mat.section = prop.table(niche.mat.section)
+
+niche.mat.norm = apply(niche.mat, 1, function(xx) xx/sum(xx))
+niche.mat.norm = t(niche.mat.norm)
+
+niche.mat.correct = apply(niche.mat, 1, function(xx) xx/sum(xx)/niche.mat.section)
+niche.mat.correct = t(niche.mat.correct)
+```
+
+```{r}
+RcppML::getRcppMLthreads()
+RcppML::setRcppMLthreads(5) ## 使用5个线程
+model <- RcppML::nmf(niche.mat.correct, k = 5, verbose = T, seed = 1024) ## 技术细节：k的数量？
+
+H = model$h
+rownames(H) = paste0("factor_",1:nrow(H))
+colnames(H) = colnames(niche.mat)
+H
+
+W = model$w
+rownames(W) = rownames(niche.mat)
+colnames(W) = rownames(H)
+head(W)
+```
+
+```{r, dev='cairo_pdf', fig.width=5, fig.height=5, warning=FALSE}
+seu.caf = subset(seu, cells = query.cells)
+seu.caf[["nmf"]] = CreateDimReducObject(W, key = "factor_")
+seu.caf = FindNeighbors(seu.caf, reduction = "nmf", dims = 1:5)
+# 4: Leiden
+seu.caf = FindClusters(seu.caf, resolution = 0.1, algorithm = 4, cluster.name = "CAF.sub")
+seu.caf$CAF.sub = factor(paste0("CAF-", seu.caf$CAF.sub))
+```
+
+
+```{r, dev='cairo_pdf', fig.width=16, fig.height=10}
+Idents(seu.caf) = "CAF.sub"
+cells = CellsByIdentities(seu.caf)
+p.list = lapply(seq_along(cells), function(i) {
+  cells.ht = cells[[i]]
+  DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1) + 
+    ggtitle(names(cells)[i]) + 
+    theme(plot.title = element_text(hjust = .5)) + 
+    NoLegend() + coord_equal()
+})
+cowplot::plot_grid(plotlist = p.list, ncol = 3)
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=4}
+##
+niche.average = sapply(cells, function(niche.cells) {
+  colMeans(niche.mat.norm[niche.cells, , drop = FALSE])
+})
+colnames(niche.average) = colnames(niche.average)
+niche.average
+
+## stack plot
+row.order = c("Tumor", "LTF+ Epi", "CAF", "Endo", "Macrophage-1", "Macrophage-2", "Neutrophil", "Mast", "Plasma", "B cell", "T cell")
+niche.average = niche.average[row.order, ]
+
+data.plot = niche.average %>% as.data.frame() %>% 
+  mutate(niche = factor(rownames(.), levels = row.order)) %>% 
+  pivot_longer(cols = 1:6, names_to = "CAF.sub", values_to = "Fraction")
+
+
+ggplot(data.plot, aes(CAF.sub, Fraction, fill = niche)) + 
+  geom_col() + 
+  ggsci::scale_fill_d3("category20") + 
+  xlab("") + ylab("Fraction of cell types") + 
+  theme_minimal(base_size = 15) + 
+  theme(axis.text = element_text(color = "black")) +
+  RotatedAxis()
+```
+
+
+```{r, dev='cairo_pdf', fig.width=5, fig.height=6}
+colors = ggsci::pal_d3()(6)
+names(colors) = levels(seu.caf$CAF.sub)
+r.anno <- rowAnnotation(
+  "CAF cluster" = factor(seu.caf$CAF.sub),
+  col = list(
+    "CAF cluster" = colors
+  ),
+  show_annotation_name = F, show_legend = TRUE
+)
+
+draw.ht = Heatmap(
+  matrix = niche.mat, 
+  name = "Weight", 
+  cluster_rows = F,
+  cluster_columns = T,
+  border = T, 
+  left_annotation = r.anno,
+  row_split = seu.caf$CAF.sub, 
+  row_title = NULL, 
+  show_row_names = F)
+draw(draw.ht)
+```
+
+```{r, dev='cairo_pdf', fig.width=6, fig.height=4}
+seu.caf = NormalizeData(seu.caf)
+seu.caf = ScaleData(seu.caf)
+seu.caf = RunPCA(seu.caf, features = Features(seu.caf))
+
+# 如何决定PC数量
+# 方法1
+ElbowPlot(seu.caf, ndims = 50)
+# 方法2
+vars = (seu.caf[["pca"]]@stdev) ^ 2
+frac.of.vars = cumsum(vars) / sum(vars)
+npcs = which(frac.of.vars > 0.7) %>% min()
+
+seu.caf = RunUMAP(seu.caf, reduction = "pca", dims = 1:npcs)
+
+DimPlot(seu.caf, reduction = "umap", group.by = "CAF.sub") + ggsci::scale_color_d3()
+```
+
+```{r, dev='cairo_pdf', fig.width=16, fig.height=8}
+data.bg = Embeddings(seu.caf, reduction = "umap")
+Idents(seu.caf) = "CAF.sub"
+cells = CellsByIdentities(seu.caf)
+plot.list = lapply(seq_along(cells), function(i) {
+  cells.fg = cells[[i]]
+  data.fg = data.bg[cells.fg, ]
+  ggplot(data.bg, aes(umap_1, umap_2)) + 
+    geom_point(size = .1, color = "grey") + 
+    stat_density_2d(data = data.fg, 
+                    aes(fill = after_stat(level)), 
+                    geom = "polygon", 
+                    alpha = 0.5, 
+                    contour = TRUE) + 
+    scale_fill_gradient(low = "white", high = "#A50F15") + 
+    ggtitle(names(cells)[i]) + 
+    labs(x = "UMAP 1", y = "UMAP 2") + 
+    theme_minimal(base_size = 15) + 
+    theme(axis.text = element_text(color = "black"),
+          plot.title = element_text(hjust = .5))
+})
+cowplot::plot_grid(plotlist = plot.list, ncol = 3)
+```
+
+
+```{r, dev='cairo_pdf', fig.width=10, fig.height=4}
+all.markers = FindAllMarkers(seu.caf)
+
+top5.markers = all.markers %>% 
+  group_by(cluster) %>% 
+  filter(avg_log2FC > 0) %>% 
+  slice_head(n = 5) %>% 
+  pull(gene) %>% 
+  unique()
+
+DotPlot(seu.caf, features = top5.markers) + RotatedAxis()
+```
+
+```{r}
+source("../utils/R/io.R")
+slim_save(seu.caf, file = "CosMx_data/CosMx_Lung5_Rep1_CAF.SeuratV5.v1.qs")
+```
+

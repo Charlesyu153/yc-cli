@@ -1,0 +1,40 @@
+---
+title: 'CosMx: Visualization'
+author: "Jarning"
+date: "2025-10-26"
+output: html_document
+---
+
+```{r setup}
+library(Seurat)
+```
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=6}
+data.dir = "../data/CosMx/Lung5_Rep1/Lung5_Rep1-Flat_files_and_images/"
+seu = LoadNanostring(data.dir = data.dir, fov = "lung5.rep1")
+head(Cells(seu))
+
+metadata = read.table("CosMx_data/sketch/rpca/LUAD_metadata.tsv", sep = "\t", header = T, row.names = 1)
+metadata = subset(metadata, sample.ID == "Lung5_Rep1")
+rownames(metadata) = sub("Lung5_Rep1_", "", rownames(metadata))
+
+seu = AddMetaData(seu, metadata[, c("annotation.r1"), drop=F])
+
+Idents(seu) = "annotation.r1"
+
+ImageDimPlot(seu, fov = "lung5.rep1", axes = T, cols = "glasbey") + 
+  annotate(geom = "rect", xmin = 159500, xmax = 164000, ymin = 8700, ymax = 10500, 
+           color = "white", linetype="dashed", alpha = 0, linewidth = 1)
+
+ImageDimPlot(seu, fov = "lung5.rep1", cells = WhichCells(seu, idents = c("B cell", "T cell", "Endo", "CAF")), 
+             cols = c("red", "green", "blue", "orange"), size = 0.6) + 
+  annotate(geom = "segment", x = 159500, xend = 164000, y = 8700, yend = 10500, color = "white", linetype="dashed")
+
+options(future.globals.maxSize = 2000 * 1024^2)
+basal.crop <- Crop(seu[["lung5.rep1"]], x = c(159500, 164000), y = c(8700, 10500))
+seu[["zoom1"]] <- basal.crop
+DefaultBoundary(seu[["zoom1"]]) <- "segmentation"
+
+ImageDimPlot(seu, fov = "zoom1", cols = "polychrome", coord.fixed = T)
+```
+

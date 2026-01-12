@@ -1,0 +1,258 @@
+---
+title: 'CosMx: Cell Niche'
+author: "Jarning"
+date: "2025-10-14"
+output: html_document
+---
+
+```{r setup}
+library(Seurat)
+library(glue)
+library(qs)
+library(tidyverse)
+library(ComplexHeatmap)
+source("../utils/R/niche.R")
+
+samples = c("Lung5_Rep1", "Lung5_Rep2", "Lung5_Rep3", "Lung6", 
+            "Lung9_Rep1", "Lung9_Rep2", "Lung12", "Lung13")
+```
+
+## CAF subtypes
+
+对每个样本分别鉴定CAF subtypes
+
+```{r}
+output.path = "CosMx_data/sketch/rpca/CAF"
+dir.create(output.path, recursive = T, showWarnings = F)
+r = 80
+total_samples = length(samples)
+for (i in seq_along(samples)) {
+  sn = samples[i]
+  cat("Processing sample", i, "of", total_samples, ":", sn, "\n")
+  seurat.file = glue("CosMx_data/sketch/rpca/projection/{sn}.SeuratV5.annotated.qs")
+  output.file = glue("{output.path}/{sn}_CAF.SeuratV5.qs")
+  ## 构建niche matrix
+  seu = qs::qread(seurat.file)
+  seu = subset(seu, annotation != "LowQ")
+  coords = Embeddings(seu, reduction = "spatial")
+  coords = coords * 0.12028 # pixel to μm
+  seu[["spatial"]]@cell.embeddings = coords
+  Idents(seu) = "annotation"
+  cells = CellsByIdentities(seu)
+  query.cells = cells$CAF
+  niche = CalNichMatrix(seu, 
+                        query.cells = query.cells, 
+                        r = r, 
+                        reduction = "spatial", 
+                        anno_col = "annotation", 
+                        return_neighbors = T)
+  ## NMF
+  nmf = RunNMF(niche$niche.mat.norm, k=5)
+  W = nmf$W
+  seu.caf = subset(seu, cells = query.cells)
+  seu.caf[["nmf"]] = CreateDimReducObject(W, key = "factor_", assay = 'RNA')
+  ## NMF-SNN-Louvain聚类
+  seu.caf = FindNeighbors(seu.caf, reduction = "nmf", dims = 1:5)
+  seu.caf = FindClusters(seu.caf, resolution = 0.1, algorithm = 1, cluster.name = "CAF.sub")
+  seu.caf$CAF.sub = factor(paste0("CAF-", seu.caf$CAF.sub))
+  ## 保存结果
+  seu.caf[["niche"]] = CreateAssayObject(counts = t(niche$niche.mat))
+  seu.caf@misc$neighbors = niche$neighbors
+  qsave(seu.caf, output.file)
+}
+```
+
+## Consensus CAF subtypes
+
+跨样本整合CAF subtypes
+
+```{r}
+## 对每张切片计算CAF subtypes的平均细胞类型组成
+## Average cell type composition for each CAF subset in each section
+niche.mat = pbapply::pblapply(samples, function(sn) {
+  seurat.file = glue("CosMx_data/sketch/rpca/projection/{sn}.SeuratV5.annotated.qs")
+  seurat.caf.file = glue("CosMx_data/sketch/rpca/CAF/{sn}_CAF.SeuratV5.qs")
+  seu = qread(seurat.file)
+  seu = subset(seu, annotation != "LowQ")
+  seu.caf = qread(seurat.caf.file)
+  
+  ## 计算平均细胞组成
+  DefaultAssay(seu.caf) = "niche"
+  niche.mat = LayerData(seu.caf, layer = "counts")
+  
+  Idents(seu.caf) = "CAF.sub"
+  cells = CellsByIdentities(seu.caf)
+  
+  niche.mat.average = sapply(cells, function(cells.use) {
+    z = rowMeans(niche.mat[, cells.use, drop=F])
+    z = z / sum(z)
+  })
+  ## 背景矫正：矫正不同切片的细胞类型占比
+  bg.fraction = prop.table(table(seu$annotation))[rownames(niche.mat.average)]
+  
+  niche.mat.average = apply(niche.mat.average, 2, function(x) {
+    z = x / bg.fraction
+    z / sum(z)
+  })
+  colnames(niche.mat.average) = paste0(sn, "_", colnames(niche.mat.average))
+  return(niche.mat.average)
+}) %>% do.call(cbind, .)
+```
+
+
+```{r, dev='cairo_pdf', fig.width=11, fig.height=10}
+## 层次聚类，统一不同切片的CAF subtypes
+cor.mat = cor(niche.mat)
+ht = Heatmap(
+  matrix = cor.mat, 
+  name = "PCC", 
+  border = T
+)
+draw(ht)
+
+tree = column_dend(ht)
+ind = cutree(as.hclust(tree), k = 4)[order.dendrogram(tree)]
+clusters <- names(table(ind))
+caf.clusters <- data.frame(sub.id=names(ind), cluster=paste0("s",ind))
+
+caf.clusters$cluster.old = caf.clusters$cluster
+
+caf.clusters$cluster[caf.clusters$cluster.old == "s3"] = "s1" # tumor enriched
+caf.clusters$cluster[caf.clusters$cluster.old == "s1"] = "s2" # stromal cell enriched
+caf.clusters$cluster[caf.clusters$cluster.old == "s4"] = "s3" # myeloid enriched
+caf.clusters$cluster[caf.clusters$cluster.old == "s2"] = "s4" # lymphoid enriched
+```
+
+```{r}
+## rename the original CAF subtypes
+for (sn in samples) {
+  seurat.caf.file = glue("CosMx_data/sketch/rpca/CAF/{sn}_CAF.SeuratV5.qs")
+  seu.caf = qread(seurat.caf.file)
+  seu.caf$CAF.annotation = as.character(seu.caf$CAF.sub)
+  seu.caf$CAF.annotation = paste0(sn, "_", seu.caf$CAF.annotation)
+  seu.caf$CAF.annotation = plyr::mapvalues(
+    x = seu.caf$CAF.annotation,
+    from = caf.clusters$sub.id,
+    to = caf.clusters$cluster, 
+    warn_missing = F
+  )
+  seu.caf$CAF.annotation = factor(seu.caf$CAF.annotation)
+  qsave(seu.caf, seurat.caf.file)
+}
+```
+
+## 解释CAF subtypes
+
+### CAF subtypes的niche组成
+
+```{r, dev='cairo_pdf', fig.width=4, fig.height=4}
+for (sn in samples) {
+  seu.caf = qread(glue("CosMx_data/sketch/rpca/CAF/{sn}_CAF.SeuratV5.qs"))
+  idents.use = "CAF.annotation"
+  niche.mat = LayerData(seu.caf, layer = "counts", assay = "niche")
+  niche.mat = apply(niche.mat, 2, function(z) z/sum(z))
+  
+  Idents(seu.caf) = idents.use
+  cells = CellsByIdentities(seu.caf)
+  ##
+  niche.average = sapply(cells, function(niche.cells) {
+    rowMeans(niche.mat[, niche.cells, drop = FALSE])
+  })
+  colnames(niche.average) = colnames(niche.average)
+  # niche.average
+  
+  ## stack plot
+  row.order = c("Tumor/Epi", "CAF", "Endo", "Macrophage-1", "Macrophage-2", 
+                "Neutrophil", "Mast", "Plasma", "B cell", "T cell")
+  niche.average = niche.average[row.order, ]
+  
+  data.plot = niche.average %>% as.data.frame() %>% 
+    mutate(niche = factor(rownames(.), levels = row.order)) %>% 
+    pivot_longer(cols = 1:ncol(niche.average), names_to = "CAF.sub", values_to = "Fraction")
+  
+  ggplot(data.plot, aes(CAF.sub, Fraction, fill = niche)) + 
+    geom_col() + 
+    ggsci::scale_fill_d3("category20") + 
+    xlab("") + ylab("Fraction of cell types") + 
+    theme_minimal(base_size = 15) + 
+    theme(axis.text = element_text(color = "black"))
+  
+  ggsave(glue("CosMx_data/sketch/rpca/CAF/plots/{sn}_CAF_composition.png"), bg = "white",
+         width = 4, height = 4, units = "in", dpi = 600)
+}
+```
+
+```{r, fig.width=3, fig.height=4}
+seu.caf = qread("CosMx_data/sketch/rpca/CAF/Lung5_Rep1_CAF.SeuratV5.qs")
+idents.use = "CAF.annotation"
+
+niche.mat = LayerData(seu.caf, layer = "counts", assay = "niche")
+niche.mat = apply(niche.mat, 2, function(z) z / sum(z))
+niche.mat = t(niche.mat)
+dim(niche.mat)
+
+annotation = seu.caf@meta.data[[idents.use]]
+names(annotation) = rownames(seu.caf@meta.data)
+colors1 = ggsci::pal_aaas()(unique(annotation) %>% length())
+names(colors1) = unique(annotation)
+
+r.anno <- rowAnnotation(
+  "CAF cluster" = annotation,
+  col = list(
+    "CAF cluster" = colors1
+  ),
+  show_annotation_name = F, show_legend = TRUE
+)
+
+draw.ht = Heatmap(
+  matrix = niche.mat, 
+  name = "fraction", 
+  cluster_rows = F,
+  cluster_columns = T,
+  border = T, 
+  left_annotation = r.anno,
+  row_split = annotation, 
+  row_title = NULL, 
+  show_row_names = F)
+draw(draw.ht)
+```
+
+### CAF subtypes的空间定位
+
+```{r, dev='cairo_pdf', fig.width=24, fig.height=5}
+total_samples = length(samples)
+for (i in seq_along(samples)) {
+  sn = samples[i]
+  cat("Processing sample", i, "of", total_samples, ":", sn, "\n")
+  seu = qs::qread(glue("CosMx_data/sketch/rpca/projection/{sn}.SeuratV5.annotated.qs"))
+  seu = subset(seu, annotation != "LowQ")
+  seu.caf = qread(glue("CosMx_data/sketch/rpca/CAF/{sn}_CAF.SeuratV5.qs"))
+  
+  Idents(seu.caf) = "CAF.annotation"
+  cells = CellsByIdentities(seu.caf)
+  
+  p.list = lapply(seq_along(cells), function(i) {
+    cells.ht = cells[[i]]
+    DimPlot(seu, reduction = "spatial", cells.highlight = cells.ht, sizes.highlight = .1, pt.size = .1) + 
+      ggtitle(names(cells)[i]) + 
+      theme(plot.title = element_text(hjust = .5)) + 
+      NoLegend()
+  })
+  cowplot::plot_grid(plotlist = p.list, ncol = 4)
+  ggsave(glue("CosMx_data/sketch/rpca/CAF/plots/{sn}_CAF_position.png"), bg = "white",
+         width = 24, height = 5, units = "in", dpi = 600)
+}
+```
+
+```{r, dev='cairo_pdf', fig.width=8, fig.height=4}
+seu.caf = qread("CosMx_data/sketch/rpca/CAF/Lung5_Rep1_CAF.SeuratV5.qs")
+Idents(seu.caf) = "CAF.annotation"
+
+seu.caf = NormalizeData(seu.caf)
+all.markers = FindAllMarkers(seu.caf, only.pos = T)
+
+top5.markers = all.markers %>% group_by(cluster) %>% slice_head(n = 5) %>% pull(gene) %>% unique()
+
+DotPlot(seu.caf, features = top5.markers) + RotatedAxis()
+```
+

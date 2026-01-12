@@ -1,0 +1,308 @@
+你现在是一名熟悉空间蛋白组学 / PhenoCycler-PCF2.0 的生物信息学工程师，
+精通 Python、pandas、anndata、scanpy、spatialdata 及 spatialdata-io 生态。
+
+本轮任务只做两件事：
+1）读取每个切片的 cleandata 表格并构建 AnnData / SpatialData 对象,输出到（创建）文件夹spatial/下；  
+2）基于给定的 marker 规则，对每个细胞进行谱系与状态注释。  
+
+后续的空间 niche 分析暂时不要实现，只要留出接口即可（例如保留一个 `run_niche_analysis(adata)` 的空函数）。
+
+────────────────────────────────
+【一、数据结构说明】
+
+1. 目录结构（示例）：
+   cleandata/
+     ├─ 1P/
+     │    ├─ 1P_objects.tsv
+     ├─ 5P/
+     │    ├─ 5P_objects.tsv
+     └─ ...
+
+   其中每个子目录对应一个样本（一个切片或一个 region），子目录名本身可以作为 sample_id。
+
+2. 每个 `*_objects.tsv` 是单细胞级表格：
+   - 每行 = 1 个细胞（或 nucleus）
+   - 至少包含以下列（命名尽量按括号内匹配，允许存在轻微差异，你的代码需容忍列缺失并给出 warning）：
+
+     空间坐标：
+       - "Center X"
+       - "Center Y"
+
+     标记强度 / 阳性列（示例，可能是 “marker” 或 “Positivity - marker” 风格）下面是标准化的marker：
+    "CD163",
+    "CD20",
+    "CD31",
+    "CD3e",
+    "CD4",
+    "CD66",
+    "CD68",
+    "CD8",
+    "CD86",
+    "CTLA-4",
+    "CLDN18.2",
+    "FOXP3",
+    "TIGIT",
+    "GZMB",
+    "Ki67",
+    "P5CS",
+    "PD-1",
+    "PD-L1",
+    "PYCR1",
+    "PanCK",
+    "SMA",
+    "Vimentin",
+    "DAPI",
+────────────────────────────────
+【二、需要你写出的代码整体框架】
+
+请写一套结构清晰、模块化的 Python 代码（可以是一个 .py 脚本，也可以是 Notebook 风格的分块代码），实现以下功能：
+
+1. 遍历 cleandata 目录
+   - 自动发现所有样本子目录（例如 `cleandata/*/`）。
+   - 在每个样本目录中寻找唯一的 `*_objects.tsv` 文件（可以通过匹配 `*_objects.tsv` 模式）。
+   - sample_id 可以用子目录名或文件前缀，例如 "1P", "5P"。
+
+2. 读取每个样本的 `*_objects.tsv`
+   - 用 pandas 读成 DataFrame。
+
+3. 对每个样本构建一个 AnnData 对象：
+   - 选出用于表达矩阵的 marker 列集合（强度列或 positivity 列皆可，但要一致），构成 `adata.X`。
+   - `adata.obs` 中包含：
+       - 原始 meta 信息（原始列中除 marker 强度列与坐标列之外的部分）；
+       - 坐标列也保留在 obs 中；
+       - 后续会在 obs 里加入谱系/类型/状态标注。
+   - `adata.var_names` 为 marker 名称（建议用简短、规范的逻辑名，如 "PanCK", "CD3e", "CD4" 等）。
+   - `adata.obsm["spatial"] = [[Center X, Center Y], ...]`。
+
+4. 在 AnnData 的 obs 上执行“细胞分类 + 状态标签”函数：
+   - 编写一个核心函数 `annotate_cell(row, cfg)`（或等价），输入单个细胞的行（Series），输出一个 dict 或附加字段：
+       - `major_lineage`
+       - `cell_type_lvl1`
+       - `cell_type_lvl2`
+       - 一批布尔状态标签（见下文第三部分）
+   - 对整个 DataFrame/AnnData 使用 `apply` 或矢量化方式执行该函数，将结果写入 `adata.obs` 相应列。
+   - 代码需要有清晰的逻辑注释，便于我之后修改规则。
+
+5. 用 AnnData 构建 SpatialData：
+   - 使用 `spatialdata.models.ShapesModel` 和 `TableModel`：
+       - shapes：用 `adata.obsm["spatial"]` 生成细胞中心的点/圆（例如 radius=1），放入 `shapes={sample_id: shapes}`。
+       - table：用 `TableModel.parse(adata, region=sample_id, region_key="region", instance_key="cell_id")` 构造 table。
+   - 构造 `SpatialData(images=None, shapes=..., table=...)` 或仅包含 shapes+table 的对象。
+   - 每个样本输出一个 `.zarr`（例如 `sample_id.sdata.zarr`），并且将 AnnData 也保存为 `sample_id.annotated.h5ad`。
+
+6. 主程序入口：
+   - 提供 `main(cleandata_root, outdir)` 函数，遍历所有样本，依次构建 AnnData / SpatialData 并保存。
+   - 对缺少关键 marker 列的样本，应打印 warning，并在可能情况下继续运行（例如该样本不做某些精细分型，但仍给出基本类型）。
+
+────────────────────────────────
+【三、细胞分类规则（谱系 + 类型 + 状态标签）】
+
+请严格按照以下规则实现细胞注释逻辑。  
+注意：  
+- **谱系/类型** 用 `major_lineage`, `cell_type_lvl1`, `cell_type_lvl2` 字段表示；  
+- **状态** 用一批布尔列表示（前缀 `st_`），可以多选。
+
+### 1. 谱系优先级（major_lineage）
+
+按以下顺序判断，并一旦匹配就不再进入后续更低优先级：
+
+1. Negative / Artifact（可选）
+   - 如果一个细胞全部 marker 强度/positivity 都几乎为 0（可设一个总和阈值），则：
+     - `major_lineage = "Negative_or_Artifact"`
+     - `cell_type_lvl1 = "Negative_or_Artifact"`
+   - 具体判断标准请你在代码中实现为一个可调参数，并在注释中说明。
+
+2. Endothelial（血管内皮）
+   - 条件：`CD31+`
+   - 设定（不再进入下方 PanCK/Immune/CAF 等）：
+     - `major_lineage = "Endothelial"`
+     - `cell_type_lvl1 = "Endothelial"`
+     - 若 `SMA+` → `cell_type_lvl2 = "Vessel_mature"`
+     - 若 `SMA-` → `cell_type_lvl2 = "Vessel_immature"`
+
+3. Tumor / Epithelial（上皮/肿瘤）
+   - 条件：`PanCK+ AND NOT CD31+`
+   - 设定：
+     - `major_lineage = "Tumor/Epithelial"`
+     - `cell_type_lvl1 = "Tumor_epithelial"`
+   - 细化：
+     - 若 `CLDN18.2+` → 前缀 `prefix = "Tumor_CLDN18p"`
+       否则 → `prefix = "Tumor_CLDN18n"`
+     - 在此前缀基础上按 `PYCR1` 分层：
+       - `PYCR1+` → `cell_type_lvl2 = prefix + "_PYCR1p"`
+       - `PYCR1-` → `cell_type_lvl2 = prefix + "_PYCR1n"`
+
+4. Immune（免疫谱系大类）
+   - 条件：`PanCK- AND CD31-` 且至少满足下列之一：
+       - `CD3e+`（T cells）
+       - `CD20+`（B cells）
+       - `CD68+` 或 `CD163+` 或 `CD86+`（Monocyte/Macrophage）
+       - `CD66+`（Neutrophil）
+   - 设定：
+       - `major_lineage = "Immune"`
+   - 在 Immune 内部再依据下述细则划分 `cell_type_lvl1` 和 `cell_type_lvl2`。
+
+5. Stromal / Mesenchymal（间充质/基质）
+   - 条件：`Vimentin+ AND PanCK- AND CD31-`，且不满足 Immune 的 marker 条件
+   - 设定：
+       - `major_lineage = "Stromal"`
+
+6. 其它
+   - 不符合以上任何条件：
+       - `major_lineage = "Unknown"`
+       - `cell_type_lvl1 = "Unknown"`
+       - `cell_type_lvl2 = "Unknown"`
+
+### 2. 各大类内部的细胞类型（cell_type_lvl1 / lvl2）
+
+#### 2.1 T 细胞（前提：Immune 且 CD3e+）
+
+- 初始：
+    - `cell_type_lvl1 = "T_cell"`
+- CD4 / CD8 分型：
+    - 若 `CD4+ AND NOT CD8+` → `cell_type_lvl1 = "CD4_T"`
+    - 若 `CD8+ AND NOT CD4+` → `cell_type_lvl1 = "CD8_T"`
+    - 若 `CD4+ AND CD8+` → `cell_type_lvl1 = "CD4_CD8_DP_T"`
+    - 若 `NOT CD4+ AND NOT CD8+` → `cell_type_lvl1 = "T_DN_or_gamma_delta"`
+
+`cell_type_lvl2` 可以初始等于 `cell_type_lvl1`，更细的标签通过状态标签实现。
+
+#### 2.2 B 细胞（前提：Immune 且 CD20+ 且 CD3e-）
+
+- `cell_type_lvl1 = "B_cell"`
+- `cell_type_lvl2 = "B_cell"`
+
+#### 2.3 单核-巨噬 / 髓系（CD68 / CD163 / CD86）
+
+前提：Immune，且 `CD3e- AND CD20- AND CD66-`，并且 `(CD68+ OR CD163+ OR CD86+)`。
+
+- `cell_type_lvl1 = "Monocyte_macrophage"`
+
+M1 / M2 / 混合 / 未指定：
+
+- 若 `CD163+ AND NOT CD86+` → `cell_type_lvl2 = "Macrophage_M2_like"`
+- 若 `CD86+ AND NOT CD163+` → `cell_type_lvl2 = "Macrophage_M1_like"`
+- 若 `CD163+ AND CD86+` → `cell_type_lvl2 = "Macrophage_M_mixed"`
+- 若 `CD68+ AND NOT CD163+ AND NOT CD86+` → `cell_type_lvl2 = "Macrophage_unspecified"`
+- 若以上都不满足 → `cell_type_lvl2 = "Monocyte_macrophage_other"`
+
+#### 2.4 中性粒细胞 / 粒细胞（CD66）
+
+前提：Immune，且 `CD66+ AND CD3e- AND CD20- AND CD68-`。
+
+- `cell_type_lvl1 = "Neutrophil"`
+- `cell_type_lvl2 = "Neutrophil"`
+
+#### 2.5 NK-like（补位）
+
+前提：`CD3e- AND CD8+ AND GZMB+ AND PanCK- AND CD31-`，且尚未被其他 Immune 子类覆盖。
+
+- `cell_type_lvl1 = "NK_like"`
+- `cell_type_lvl2 = "NK_like"`
+
+#### 2.6 基质 / CAF / Fibroblast（Vimentin / SMA / CD31）
+
+前提：`major_lineage == "Stromal"` 或尚未赋值且 `Vimentin+ AND PanCK- AND CD31-`。
+
+- `cell_type_lvl1 = "Stromal_VIM+"`
+
+在此基础上：
+
+- 若 `Vimentin+ AND SMA+ AND CD31-` → `cell_type_lvl2 = "CAF"`
+- 若 `Vimentin+ AND SMA- AND CD31-` → `cell_type_lvl2 = "Fibroblast_other"`
+- 若 `Vimentin+ AND SMA+ AND CD31+` → `cell_type_lvl2 = "Perivascular_or_pericyte"`
+
+其他未归类的基质细胞：
+- `cell_type_lvl2 = "Stromal_other"`
+
+#### 2.7 Endothelial 暂定如前（CD31+），已在谱系部分定义。
+
+#### 2.8 Tumor / Epithelial 如前，已在谱系部分定义。
+
+#### 2.9 Unknown
+
+所有未匹配到任何类型的细胞：
+- `cell_type_lvl1 = "Unknown"`
+- `cell_type_lvl2 = "Unknown"`
+
+### 3. 状态标签（st_* 布尔列）
+
+下面这些全部是布尔列，允许一个细胞同时拥有多个状态。
+
+统一前缀 `st_`，建议至少包括：
+
+#### 3.1 通用
+
+- `st_proliferating`       ← `Ki67+`
+- `st_checkpoint_PD1`      ← `PD-1+`
+- `st_checkpoint_PDL1`     ← `PD-L1+`
+- `st_checkpoint_CTLA4`    ← `CTLA-4+`
+- `st_checkpoint_TIGIT`    ← `TIGIT+`
+- `st_metabolic_P5CS_high`  ← `P5CS+`
+- `st_metabolic_PYCR1_high` ← `PYCR1+`
+
+#### 3.2 T 细胞特有（在 T 细胞亚型上）
+
+- `st_Treg`         ← `cell_type_lvl1 == "CD4_T"` 且 `(FOXP3+ OR CTLA-4+)`
+- `st_CD8_effector` ← `cell_type_lvl1 == "CD8_T"` 且 `GZMB+`
+- `st_CD8_exhausted`← `cell_type_lvl1 == "CD8_T"` 且 `(PD-1+ OR PD-L1+ OR TIGIT+)`
+- `st_CD4_exhausted`← `cell_type_lvl1 == "CD4_T"` 且 `(PD-1+ OR PD-L1+ OR TIGIT+)`
+
+#### 3.3 B 细胞
+
+- `st_B_proliferating` ← `cell_type_lvl1 == "B_cell"` 且 `Ki67+`
+- `st_B_exhausted`     ← `cell_type_lvl1 == "B_cell"` 且 `(PD-1+ OR PD-L1+)`
+
+#### 3.4 单核-巨噬 / 髓系（含 CD68）
+
+在 `cell_type_lvl1 == "Monocyte_macrophage"` 时：
+
+- `st_M1_like`      ← `cell_type_lvl2 == "Macrophage_M1_like"`
+- `st_M2_like`      ← `cell_type_lvl2 == "Macrophage_M2_like"`
+- `st_M_mixed`      ← `cell_type_lvl2 == "Macrophage_M_mixed"`
+- `st_M_exhausted`  ← `(PD-1+ OR PD-L1+)`
+- `st_M_proliferating` ← `Ki67+`
+
+#### 3.5 Neutrophil（CD66）
+
+在 `cell_type_lvl1 == "Neutrophil"` 时，可简单实现：
+
+- `st_Neutrophil_activated` ← (`GZMB+` OR `Ki67+`)
+- `st_Neutrophil_checkpoint`← (`PD-1+` OR `PD-L1+`)
+
+#### 3.6 CAF / Stromal
+
+在 `cell_type_lvl2 == "CAF"` 时：
+
+- `st_CAF_PD-L1_pos`        ← `PD-L1+`
+- `st_CAF_metabolic_P5CS`   ← `P5CS+`
+- `st_CAF_metabolic_PYCR1`  ← `PYCR1+`
+
+Tumor 细胞的 Ki67/PD-L1/P5CS/PYCR1 状态可以用通用的 `st_*` 列直接解释。
+
+────────────────────────────────
+【四、实现要求】
+
+1. 请给出一份完整的、可在 Python 3 环境中运行的代码：
+   - 包含必要的 import；
+   - 提供一个 `main(cleandata_root, outdir)` 函数；
+   - 在脚本末尾可以示意性地调用 `main("cleandata", "results")`。
+
+2. 代码要尽量模块化：
+   - `load_sample_objects(path) -> DataFrame`
+   - `infer_marker_positivity(df, marker_config) -> df_with_bool_cols`
+   - `annotate_cell(row, marker_bool_cols) -> dict`
+   - `build_anndata(df_annot, marker_cols) -> AnnData`
+   - `build_spatialdata_from_adata(adata, sample_id) -> SpatialData`
+
+3. 对于 marker 缺失或列名未找到：
+   - 以 `logging.warning` 或 `print` 给出清晰提示，但尽量让脚本继续执行；
+   - 在注释中说明如果某些关键 marker 缺失，相应的某些细胞类型判别会被降级为较粗类别或 Unknown。
+
+4. 不要在本轮实现任何下游分析（如邻域构建、niche clustering 等），只要构建好 AnnData/SpatialData 并保存即可。
+   可以为后续分析预留一个空函数，例如：
+
+   ```python
+   def run_niche_analysis(adata):
+       \"\"\"Placeholder for future niche analysis.\"\"\"
+       pass
