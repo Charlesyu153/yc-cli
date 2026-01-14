@@ -56,6 +56,16 @@ sed -e "s/\[任务名称\]/$TASK_NAME/g" \
 
 echo -e "${GREEN}✓ 任务文档已创建: $TARGET_FILE${NC}"
 echo -e "${BLUE}任务目录: $TASK_DIR${NC}"
+
+# 创建任务上下文
+CONTEXT_SCRIPT="$AI_DOCS_DIR/.context/scripts/update-context.sh"
+if [ -f "$CONTEXT_SCRIPT" ]; then
+    echo -e "${BLUE}正在创建任务上下文...${NC}"
+    "$CONTEXT_SCRIPT" --task "$TASK_NAME" 2>/dev/null && \
+        echo -e "${GREEN}✓ 任务上下文已创建${NC}" || \
+        echo -e "${RED}! 任务上下文创建失败（可忽略）${NC}"
+fi
+
 echo ""
 echo -e "${GREEN}下一步:${NC}"
 echo "1. 编辑任务文档: $TARGET_FILE"

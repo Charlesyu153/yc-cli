@@ -104,3 +104,58 @@ echo ""
 echo "✓ AI 文档系统部署完成"
 echo ""
 echo "注意: current/ 和 archive/ 目录的用户数据已被完全保护"
+
+# 部署 .context 目录
+echo ""
+echo "部署 Filesystem Context 系统..."
+mkdir -p "$TARGET_DIR/.context"/{modules,tasks,files,snapshots,scripts/hooks}
+
+# 复制 .context 核心文件
+if [ -d "$SOURCE_DIR/.context" ]; then
+    # 复制文档
+    for file in "$SOURCE_DIR/.context/"*.md; do
+        if [ -f "$file" ]; then
+            filename=$(basename "$file")
+            smart_copy "$file" "$TARGET_DIR/.context/$filename" "$COPY_MODE"
+        fi
+    done
+
+    # 复制索引
+    if [ -f "$SOURCE_DIR/.context/index.json" ]; then
+        smart_copy "$SOURCE_DIR/.context/index.json" "$TARGET_DIR/.context/index.json" "$COPY_MODE"
+    fi
+
+    # 复制模块上下文
+    if [ -d "$SOURCE_DIR/.context/modules" ]; then
+        for file in "$SOURCE_DIR/.context/modules/"*.json; do
+            if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                smart_copy "$file" "$TARGET_DIR/.context/modules/$filename" "$COPY_MODE"
+            fi
+        done
+    fi
+
+    # 复制脚本
+    if [ -d "$SOURCE_DIR/.context/scripts" ]; then
+        for file in "$SOURCE_DIR/.context/scripts/"*.sh; do
+            if [ -f "$file" ]; then
+                filename=$(basename "$file")
+                smart_copy "$file" "$TARGET_DIR/.context/scripts/$filename" "$COPY_MODE"
+                chmod +x "$TARGET_DIR/.context/scripts/$filename"
+            fi
+        done
+
+        # 复制 hooks
+        if [ -d "$SOURCE_DIR/.context/scripts/hooks" ]; then
+            for file in "$SOURCE_DIR/.context/scripts/hooks/"*; do
+                if [ -f "$file" ]; then
+                    filename=$(basename "$file")
+                    smart_copy "$file" "$TARGET_DIR/.context/scripts/hooks/$filename" "$COPY_MODE"
+                    chmod +x "$TARGET_DIR/.context/scripts/hooks/$filename"
+                fi
+            done
+        fi
+    fi
+
+    echo -e "${GREEN}✓${NC} Filesystem Context 系统部署完成"
+fi

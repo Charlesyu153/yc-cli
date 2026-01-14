@@ -1,0 +1,99 @@
+{
+  "project": "YC-CLI",
+  "description": "AI 辅助开发工具集，包含 AI Agents 配置和文档管理系统",
+  "updated": "2026-01-14T12:54:19+08:00",
+  "version": "2.0.0",
+  "modules": [
+    {
+      "name": "agents",
+      "path": "agents/",
+      "description": "AI Agents 配置系统 - 三个专用 AI 角色",
+      "context_file": "modules/agents.json"
+    },
+    {
+      "name": "ai-docs",
+      "path": "ai-docs/",
+      "description": "AI 文档管理系统 - 任务生命周期管理",
+      "context_file": "modules/ai-docs.json"
+    }
+  ],
+  "active_tasks": [],
+  "key_files": [
+    {
+      "path": "README.md",
+      "purpose": "项目总览和快速开始指南"
+    },
+    {
+      "path": "config/project-info.json",
+      "purpose": "项目元信息和版本配置"
+    },
+    {
+      "path": "config/standards.json",
+      "purpose": "项目规范配置"
+    },
+    {
+      "path": "ai-docs/templates/ai-guidelines.md",
+      "purpose": "AI 协作规范"
+    }
+  ],
+  "recent_changes": [
+    {
+      "date": "2026-01-14 11:52:26 +0800",
+      "commit": "cc7dcfe",
+      "summary": "feat: YC-CLI 完整功能实现"
+    },
+    {
+      "date": "2026-01-14",
+      "commit": "v2.0.0",
+      "summary": "引入 filesystem-context 持久化系统"
+    },
+    {
+      "date": "2026-01-14",
+      "commit": "cc7dcfe",
+      "summary": "YC-CLI 完整功能实现"
+    }
+  ],
+  "components": {
+    "agents": {
+      "count": 3,
+      "roles": [
+        "code-architect",
+        "code-explorer",
+        "code-reviewer"
+      ]
+    },
+    "ai_docs": {
+      "features": [
+        "任务管理",
+        "上下文恢复",
+        "协作规范",
+        "自动化脚本"
+      ]
+    },
+    "context": {
+      "features": [
+        "动态发现",
+        "自动更新",
+        "快照备份",
+        "Git hooks"
+      ]
+    }
+  },
+  "documentation": {
+    "main": "README.md",
+    "getting_started": "docs/GETTING-STARTED.md",
+    "deployment": "docs/DEPLOYMENT.md",
+    "standards": "docs/STANDARDS.md",
+    "agents_guide": "docs/AGENTS-GUIDE.md",
+    "ai_docs_guide": "docs/AI-DOCS-GUIDE.md",
+    "context_quickstart": "ai-docs/.context/QUICKSTART.md"
+  },
+  "scripts": {
+    "deploy": "scripts/deploy.sh",
+    "deploy_agents": "scripts/deploy-agents.sh",
+    "deploy_ai_docs": "scripts/deploy-ai-docs.sh",
+    "discover_context": "ai-docs/.context/scripts/discover-context.sh",
+    "update_context": "ai-docs/.context/scripts/update-context.sh",
+    "snapshot_context": "ai-docs/.context/scripts/snapshot-context.sh"
+  }
+}

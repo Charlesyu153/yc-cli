@@ -1,0 +1,94 @@
+{
+  "module": "agents",
+  "path": "agents/",
+  "description": "AI Agents 配置系统 - 定义三个专用 AI 协作角色",
+  "purpose": "为 Claude Code 提供预定义的 AI 角色，实现专业化的代码协作",
+  "agents": [
+    {
+      "name": "code-architect",
+      "config": "agents/code-architect.json",
+      "description": "代码架构师 - 负责架构设计、技术选型和实施规划",
+      "capabilities": [
+        "系统架构设计",
+        "技术选型建议",
+        "实施计划制定",
+        "代码结构优化"
+      ],
+      "use_cases": [
+        "新项目架构设计",
+        "重构方案规划",
+        "技术债务评估"
+      ]
+    },
+    {
+      "name": "code-explorer",
+      "config": "agents/code-explorer.json",
+      "description": "代码探索者 - 负责代码搜索、结构分析和文档生成",
+      "capabilities": [
+        "代码库搜索",
+        "依赖关系分析",
+        "文档自动生成",
+        "代码结构可视化"
+      ],
+      "use_cases": [
+        "快速了解新代码库",
+        "查找特定功能实现",
+        "生成代码文档"
+      ]
+    },
+    {
+      "name": "code-reviewer",
+      "config": "agents/code-reviewer.json",
+      "description": "代码审查者 - 负责质量检查、问题发现和改进建议",
+      "capabilities": [
+        "代码质量检查",
+        "安全漏洞扫描",
+        "性能问题识别",
+        "最佳实践建议"
+      ],
+      "use_cases": [
+        "PR 代码审查",
+        "代码质量评估",
+        "安全审计"
+      ]
+    }
+  ],
+  "key_files": [
+    {
+      "file": "agents/agents.json",
+      "purpose": "Agent 配置索引文件"
+    },
+    {
+      "file": "agents/code-architect.json",
+      "purpose": "架构师角色配置"
+    },
+    {
+      "file": "agents/code-explorer.json",
+      "purpose": "探索者角色配置"
+    },
+    {
+      "file": "agents/code-reviewer.json",
+      "purpose": "审查者角色配置"
+    },
+    {
+      "file": "agents/README.md",
+      "purpose": "Agents 使用说明"
+    }
+  ],
+  "workflow": [
+    "1. 部署 agents 到目标项目的 .claude/agents/ 目录",
+    "2. 在 Claude Code 中使用角色名称调用 agent",
+    "3. Agent 根据预定义的能力和工具执行任务"
+  ],
+  "usage_example": "请以 code-explorer 的角色，查找所有处理用户认证的代码",
+  "deployment": {
+    "target_path": ".claude/agents/",
+    "script": "scripts/deploy-agents.sh"
+  },
+  "related_modules": ["ai-docs"],
+  "documentation": {
+    "guide": "docs/AGENTS-GUIDE.md"
+  },
+  "last_modified": "2026-01-14",
+  "status": "stable"
+}

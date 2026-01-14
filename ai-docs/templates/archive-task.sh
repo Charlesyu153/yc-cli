@@ -97,6 +97,15 @@ mkdir -p "$ARCHIVE_DIR"
 echo -e "${BLUE}正在归档任务: $TASK_NAME${NC}"
 mv "$CURRENT_DIR" "$TARGET_DIR"
 
+# 更新任务上下文状态为 completed
+CONTEXT_SCRIPT="$AI_DOCS_DIR/.context/scripts/update-context.sh"
+if [ -f "$CONTEXT_SCRIPT" ]; then
+    echo -e "${BLUE}正在更新任务上下文...${NC}"
+    "$CONTEXT_SCRIPT" --task "$TASK_NAME" 2>/dev/null && \
+        echo -e "${GREEN}✓ 任务上下文已更新${NC}" || \
+        echo -e "${RED}! 任务上下文更新失败（可忽略）${NC}"
+fi
+
 # 统计文件数量
 FILE_COUNT=$(find "$TARGET_DIR" -type f | wc -l)
 DIR_SIZE=$(du -sh "$TARGET_DIR" | cut -f1)

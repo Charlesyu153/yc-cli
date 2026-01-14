@@ -1,13 +1,14 @@
 # YC-CLI
 
-AI 辅助开发工具集，包含 AI Agents 配置和文档管理系统。
+AI 辅助开发工具集，包含 AI Agents 配置、文档管理系统和 Filesystem Context 持久化系统。
 
 ## 项目简介
 
-YC-CLI 提供两个核心子系统：
+YC-CLI 提供三个核心子系统：
 
 1. **AI Agents 配置** - 三个专用 AI agents（架构师、探索者、审查者）
 2. **AI 文档管理系统** - 任务管理和协作规范工具
+3. **Filesystem Context** - 持久化上下文管理系统（v2.0 新增）
 
 ## 快速开始
 
@@ -61,6 +62,31 @@ cd ai-docs/templates
 ./archive-task.sh "任务名称"
 ```
 
+### 使用 Filesystem Context（v2.0 新增）
+
+```bash
+# 发现相关上下文
+cd ai-docs/.context/scripts
+./discover-context.sh "agents"        # 搜索 agents 相关上下文
+./discover-context.sh "部署" -v       # 详细输出
+
+# 更新上下文
+./update-context.sh --all             # 更新所有上下文
+./update-context.sh --module agents   # 更新特定模块
+
+# 创建快照
+./snapshot-context.sh                 # 备份当前上下文
+```
+
+**AI 会话开始时：**
+```
+请读取项目上下文：
+1. ai-docs/.context/index.json - 项目概览
+2. ai-docs/current/{任务名}/{任务名}.md - 当前任务
+
+我需要：[具体需求]
+```
+
 ### Skills 集成
 
 优先使用可用的 Skills 来完成任务：
@@ -98,6 +124,7 @@ claude mcp install github --owner K-Dense-AI --repo claude-scientific-skills
 | `docs/AGENTS-GUIDE.md` | AI Agents 使用指南 |
 | `docs/AI-DOCS-GUIDE.md` | AI 文档系统使用指南 |
 | `docs/SKILLS-GUIDE.md` | Skills 使用指南 |
+| `ai-docs/.context/QUICKSTART.md` | Filesystem Context 快速指南 |
 
 ## 目录结构
 
@@ -130,6 +157,12 @@ yc-cli/
     ├── current/               # 进行中的任务
     ├── archive/               # 已完成任务
     ├── templates/             # 模板和工具
+    ├── .context/              # Filesystem Context 系统（v2.0）
+    │   ├── index.json        # 项目索引
+    │   ├── modules/          # 模块上下文
+    │   ├── tasks/            # 任务上下文
+    │   ├── snapshots/        # 快照备份
+    │   └── scripts/          # 自动化脚本
     ├── README.md
     └── QUICKREF.md
 ```
@@ -144,6 +177,6 @@ MIT License
 
 ---
 
-**版本**: v1.0.0
+**版本**: v2.0.0
 **创建日期**: 2026-01-12
 **更新日期**: 2026-01-14
