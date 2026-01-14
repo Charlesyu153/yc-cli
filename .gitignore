@@ -40,3 +40,8 @@ ai-docs/current/*
 !ai-docs/current/.gitkeep
 ai-docs/archive/*
 !ai-docs/archive/.gitkeep
+
+# Packaging
+*.tar.gz
+*.zip
+yc-cli-*.tar.gz

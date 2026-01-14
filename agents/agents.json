@@ -1,14 +1,17 @@
 {
   "version": "1.0.0",
-  "description": "PCF 项目 AI Agents 配置",
+  "description": "YC-CLI AI Agents 配置",
+  "config_reference": "../config/standards.json",
+  "project_info_reference": "../config/project-info.json",
   "project": {
-    "name": "PCF",
-    "description": "空间转录组学 CAF Niche 分析项目",
-    "tech_stack": ["Python", "R", "scanpy", "Seurat", "spatialdata"],
+    "name": "YC-CLI",
+    "description": "AI 辅助开发工具集",
+    "tech_stack": ["Python", "R", "Markdown", "Bash"],
     "context_files": [
-      "README_ai-doc.md",
-      "docs/AGENTS.md",
-      "ai-docs/templates/ai-guidelines.md"
+      "../docs/STANDARDS.md",
+      "../docs/AGENTS-GUIDE.md",
+      "../config/standards.json",
+      "ai-guidelines.md"
     ]
   },
   "agents": {

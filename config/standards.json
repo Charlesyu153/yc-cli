@@ -1,0 +1,82 @@
+{
+  "version": "1.0.0",
+  "description": "YC-CLI 项目统一规范配置",
+  "core_rules": {
+    "no_emoji": {
+      "enabled": true,
+      "description": "禁止使用表情符号",
+      "exception": "用户明确要求使用表情时"
+    },
+    "commit_per_step": {
+      "enabled": true,
+      "description": "每完成一个步骤后更新文档并 git commit",
+      "workflow": "完成步骤 → 更新文档 → git commit"
+    },
+    "archive_when_done": {
+      "enabled": true,
+      "description": "任务完成后归档到 archive 目录",
+      "location": "ai-docs/archive/"
+    },
+    "max_lines": {
+      "enabled": true,
+      "limit": 500,
+      "description": "代码文件不超过 500 行，超过即模块化重构",
+      "action": "按功能拆分成多个模块"
+    }
+  },
+  "coding_standards": {
+    "python": {
+      "style": "PEP 8",
+      "indent": "4 spaces",
+      "naming": "snake_case",
+      "max_lines": 500,
+      "imports": "按标准库、第三方库、本地模块分组"
+    },
+    "r": {
+      "indent": "2 spaces",
+      "naming": "snake_case",
+      "path_handling": "file.path()",
+      "max_lines": 500,
+      "logging": "适当的日志输出"
+    }
+  },
+  "git_commit": {
+    "format": "<type>: <subject>\\n\\n<body>\\n\\nCo-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>",
+    "types": {
+      "feat": "新功能",
+      "fix": "修复bug",
+      "docs": "文档更新",
+      "refactor": "重构代码",
+      "test": "添加测试",
+      "style": "代码格式调整",
+      "perf": "性能优化"
+    },
+    "co_author": "Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
+  },
+  "skills": {
+    "priority": "high",
+    "description": "优先使用可用的 Skills 来完成任务",
+    "principle": "在执行任务前，先检查是否有相关的 Skill 可用",
+    "libraries": [
+      {
+        "name": "muratcankoylan/Agent-Skills-for-Context-Engineering",
+        "type": "通用开发技能",
+        "capabilities": ["代码分析", "重构", "测试", "文档生成"],
+        "install": "claude mcp install github --owner muratcankoylan --repo Agent-Skills-for-Context-Engineering",
+        "repository": "https://github.com/muratcankoylan/Agent-Skills-for-Context-Engineering"
+      },
+      {
+        "name": "claude-scientific-skills",
+        "type": "科学计算和数据分析技能",
+        "capabilities": ["生物信息学", "机器学习", "数据可视化"],
+        "install": "claude mcp install github --owner K-Dense-AI --repo claude-scientific-skills",
+        "repository": "https://github.com/K-Dense-AI/claude-scientific-skills"
+      }
+    ]
+  },
+  "documentation": {
+    "format": "Markdown",
+    "style": "简洁、专业、无表情符号",
+    "code_reference": "使用 path/to/file.ext:line_number 格式"
+  }
+}

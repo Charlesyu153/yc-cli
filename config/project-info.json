@@ -1,0 +1,62 @@
+{
+  "name": "YC-CLI",
+  "version": "1.0.0",
+  "description": "AI 辅助开发工具集，包含 AI Agents 配置和文档管理系统",
+  "created_date": "2026-01-12",
+  "license": "MIT",
+  "components": {
+    "agents": {
+      "path": "agents/",
+      "description": "AI Agents 配置系统",
+      "purpose": "定义 AI 协作角色和工作流程",
+      "agents": [
+        {
+          "name": "code-architect",
+          "description": "代码架构师 - 负责架构设计、技术选型和实施规划",
+          "config": "agents/code-architect.json"
+        },
+        {
+          "name": "code-explorer",
+          "description": "代码探索者 - 负责代码搜索、结构分析和文档生成",
+          "config": "agents/code-explorer.json"
+        },
+        {
+          "name": "code-reviewer",
+          "description": "代码审查者 - 负责质量检查、问题发现和改进建议",
+          "config": "agents/code-reviewer.json"
+        }
+      ]
+    },
+    "ai_docs": {
+      "path": "ai-docs/",
+      "description": "AI 文档管理系统",
+      "purpose": "任务生命周期管理和上下文连续性",
+      "features": [
+        "任务文档管理（创建、更新、归档）",
+        "上下文恢复（长期任务连续性）",
+        "AI 协作规范（统一的工作流程）",
+        "工具脚本（自动化任务管理）"
+      ]
+    }
+  },
+  "documentation": {
+    "main": "README.md",
+    "getting_started": "docs/GETTING-STARTED.md",
+    "deployment": "docs/DEPLOYMENT.md",
+    "standards": "docs/STANDARDS.md",
+    "agents_guide": "docs/AGENTS-GUIDE.md",
+    "ai_docs_guide": "docs/AI-DOCS-GUIDE.md",
+    "skills_guide": "docs/SKILLS-GUIDE.md"
+  },
+  "scripts": {
+    "deploy": "scripts/deploy.sh",
+    "deploy_agents": "scripts/deploy-agents.sh",
+    "deploy_ai_docs": "scripts/deploy-ai-docs.sh",
+    "pack_agents": "scripts/pack-agents.sh",
+    "pack_ai_docs": "scripts/pack-ai-docs.sh"
+  },
+  "config": {
+    "standards": "config/standards.json",
+    "project_info": "config/project-info.json"
+  }
+}

@@ -1,6 +1,8 @@
 # AI协作预设指令
 
 > 在与AI开始协作时，将此文档内容提供给AI，确保遵循项目规范
+>
+> 本文档遵循项目统一规范，详见: ../../config/standards.json
 
 ---
 
@@ -64,10 +66,10 @@
    ```bash
    git add .
    git commit -m "描述性的提交信息
-
+   
    - 完成的具体工作
    - 修改的关键文件
-
+   
    Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
    ```
 
@@ -201,6 +203,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 ### 必须执行的操作
 
 1. **完成每个步骤后**
+
    - 更新进度文档
    - 执行 git commit
 
@@ -212,6 +215,28 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
    - 检查文件行数，单文件不超过500行
    - 超过500行立即进行模块化重构
    - 在任务文档中记录重构决策
+
+4. ```txt
+   Use available skills you have access to whenever possible.
+   ```
+
+### 4. Skills 使用规范
+
+**优先使用 Skills**
+- 在执行任务前，检查是否有相关的 Skill 可用
+- 充分利用 Skills 的专业能力，提升开发效率
+- Skills 可以与 Agents 配合使用
+
+**可用的 Skills 库**
+- muratcankoylan/Agent-Skills-for-Context-Engineering（通用开发技能）
+- claude-scientific-skills（科学计算和数据分析技能）
+
+**Skills 使用场景**
+- 代码分析和重构
+- 测试和质量检查
+- 文档生成
+- 数据分析和可视化
+- 生物信息学处理
 
 ### 禁止的操作
 
@@ -238,7 +263,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
    ```
    请阅读以下上下文恢复文档，继续之前的任务...
    [粘贴 context-resume-{日期}.md 的内容]
-
+   
    注意：请遵循 ai-docs/templates/ai-guidelines.md 中的预设指令
    ```
 
@@ -257,6 +282,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 - [ ] 检查文件行数是否超过500行
 - [ ] 如超过500行，进行模块化重构
 - [ ] 在任务文档中记录重构决策
+- [ ] 优先使用可用的 Skills
 
 **完成每个步骤后**
 - [ ] 更新进度文档
@@ -308,6 +334,7 @@ git log --oneline -5
    - 每完成一个步骤后更新文档并 git commit
    - 所有任务完成后归档到 archive 目录
    - 所有代码文件不超过500行，超过即模块化重构
+   - 优先使用可用的 Skills
 
 当前需要：[具体描述需求]
 ```

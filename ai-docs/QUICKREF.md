@@ -46,6 +46,7 @@ Co-Authored-By: Claude Sonnet 4.5 <noreply@anthropic.com>"
 ```
 
 ### 3. 完成所有任务后归档
+
 ```bash
 # a. 填写完成总结
 vim ai-docs/current/{任务名}/{任务名}.md
@@ -58,6 +59,8 @@ cd ai-docs/templates
 git add ai-docs/archive/{任务名}
 git commit -m "docs: 归档任务 {任务名}"
 ```
+
+### 4.Use available skills you have access to whenever possible
 
 ---
 

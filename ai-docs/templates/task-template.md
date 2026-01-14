@@ -12,6 +12,8 @@
 
 ## 任务目标
 
+Use available skills you have access to whenever possible.
+
 [描述任务的目标和预期结果]
 
 ---
