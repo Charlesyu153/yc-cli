@@ -1,0 +1,13 @@
+# default - Key Insight Index
+# Last updated: 2026-01-22
+
+[example_decision]
+Title: QC threshold decisions are stored as pointers
+Summary: Keep RAG clean by indexing only insights; load code via pointers.
+Keywords: qc, threshold, process
+Detail: current/default/insights/example_decision.md
+Created: 2026-01-22
+Related: pipelines/qc.nf
+Status: done
+Priority: medium
+

@@ -1,11 +1,11 @@
 ---
 name: skills-index
-description: Central index for all ~/.claude skills. Read this FIRST when user mentions "skill" or "context skill".
+description: Central index for this repo's skills. Read this FIRST when user mentions "skill" or "context skill".
 ---
 
-# ~/.claude Skills Index
+# Skills Index
 
-**重要**: 用户说 "context skill" 时，只用 `~/.claude/context-insight.md`，不要与 `ai-docs/.context/` 的 JSON 系统混淆。
+**重要**: 用户说 "context skill" 时，只用 `skills/context-insight/SKILL.md`，不要与其它 JSON/脚本类上下文系统混淆。
 
 ---
 
@@ -13,7 +13,7 @@ description: Central index for all ~/.claude skills. Read this FIRST when user m
 
 | Skill | 文件 | 何时调用 |
 |-------|------|----------|
-| **context-insight** | `~/.claude/context-insight.md` | 记录洞察、教训、项目状态管理 |
+| **context-insight** | `skills/context-insight/SKILL.md` | 记录洞察、教训、项目状态管理 |
 
 ---
 
@@ -23,7 +23,7 @@ description: Central index for all ~/.claude skills. Read this FIRST when user m
 
 用户说 "用 context skill" 或 "记录这个教训" 时：
 ```bash
-Read ~/.claude/context-insight.md
+Read skills/context-insight/SKILL.md
 ```
 
 ### 2. 会话开始时读取 Hot Data
@@ -64,11 +64,11 @@ ai-docs/current/{任务}/insights/{insight_id}.md
 ## 简单规则
 
 ```
-用户说 "context skill" → Read ~/.claude/context-insight.md
-用户说 "记录这个"  → 按照 context-insight.md 格式创建 insight
-用户说 "更新上下文"  → 默认使用 ~/.claude/context-insight.md，如果用户有特殊需求，再询问是用 ~/.claude/context-insight.md 还是 ai-docs/.context/
+用户说 "context skill" → Read skills/context-insight/SKILL.md
+用户说 "记录这个"  → 按照 templates 创建 insight + 更新索引
+用户说 "更新上下文"  → 默认走 context-insight（索引/按需加载），必要时再讨论是否需要 RAG 服务
 ```
 
 ---
 
-**更新日期**: 2026-01-21
+**更新日期**: 2026-01-22

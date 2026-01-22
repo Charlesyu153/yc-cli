@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+
+# RAG data
+.rag/cache/
+.rag/chroma/
+.rag/rag.log
+
+# IDE
+.vscode/
+.idea/
+*.swp

@@ -1,9 +1,9 @@
 ---
 name: skills-index
-description: Central index for all ~/.claude/skills. Read this FIRST when user mentions "skill", "context skill", or asks what skills are available. This is the entry point for discovering and invoking the correct skill.
+description: Central index for this repository's skills. Read this FIRST when user mentions "skill", "context skill", or asks what skills are available. This is the entry point for discovering and invoking the correct skill.
 ---
 
-# ~/.claude Skills Index
+# Skills Index
 
 ## Available Skills
 
@@ -35,7 +35,7 @@ skills/{skill-name}/
 
 1. **User says "context skill"**:
    ```bash
-   Read ~/.claude/skills/context-insight/SKILL.md
+   Read skills/context-insight/SKILL.md
    ```
 
 2. **User wants to record something**:
@@ -45,6 +45,6 @@ skills/{skill-name}/
 
 ## Important Notes
 
-- This system (`~/.claude/skills/`) is **separate** from `ai-docs/.context/`
-- When user says "context skill", default to `~/.claude/skills/context-insight/`
-- If unclear, ask: "Use ~/.claude context-insight or ai-docs/.context/?"
+- The skills in `skills/` are **separate** from the `ai-docs/` knowledge store.
+- When user says "context skill", use `skills/context-insight/SKILL.md`.
+- If your environment installs skills elsewhere, adjust the file path accordingly.

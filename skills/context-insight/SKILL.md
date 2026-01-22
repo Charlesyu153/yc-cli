@@ -19,14 +19,20 @@ When user says "context skill" or asks to record something:
 |----------|---------|
 | "context skill" | Read this skill, follow format |
 | "记录这个教训" | Create insight in `insights/` |
-| "更新上下文" | Ask: ~/.claude/context-insight or ai-docs/.context/? |
-| "用 skill" | Always check ~/.claude/skills/ first |
+| "更新上下文" | Default to this workflow (MANIFEST + insights + .txt index); only add RAG service if needed |
+| "用 skill" | Use `skills/SKILL.md` to find the right skill |
 
 ## Core Principle
 
 **Separate key records (brief index) from detailed records (full content).**
 
 AI reads index first, then loads details on demand. This saves tokens and keeps sessions efficient.
+
+## Scope (Important)
+
+- This system is optimized for **A: decisions/lessons/results** that should be remembered across sessions.
+- It should **not** index the entire codebase.
+- When an insight must reference code, it should link via **pointers** (`related_files`) so the AI can read only the relevant snippet on demand.
 
 ## File Structure
 
@@ -40,6 +46,9 @@ ai-docs/current/{task}/
 
 ai-docs/.context/insights/
 └── {task}.txt           # Key Records Index (brief, searchable)
+
+ai-docs/templates/
+└── insight-template.md   # Copy when creating insights
 ```
 
 ## Index Format (.txt)
@@ -66,9 +75,21 @@ Priority: high|medium|low
 title: Insight Title
 id: unique_id
 created: YYYY-MM-DD
-tags: tag1, tag2
-status: draft|done|todo
+type: decision|lesson|failure
+tags: [tag1, tag2]
+status: draft|done|todo|deprecated
 priority: high|medium|low
+last_verified: YYYY-MM-DD
+supersedes: optional_old_id
+superseded_by: optional_new_id
+related_files:
+  - path: repo/relative/path.ext
+    git_rev: optional_commit_hash
+    locator:
+      rg_pattern: stable_regex_pattern
+      # or: symbol: FunctionOrRuleName
+      # or: line: 123  # optional hint only
+    why: one_sentence_reason
 ---
 
 ## Core Question/Conclusion
@@ -87,6 +108,18 @@ priority: high|medium|low
 ## Related Files
 - {path}: {purpose}
 ```
+
+## Locator Rules (How to Point to Code)
+
+Use the most stable locator you can; line numbers drift.
+
+Priority:
+1. `git_rev + locator.rg_pattern` (recommended)
+2. `locator.symbol` (good if your code has stable names)
+3. `locator.line` (hint only)
+
+Suggested retrieval command:
+- `rg -n "<rg_pattern>" <path> -C 3`
 
 ## MANIFEST.md Format
 
@@ -128,9 +161,18 @@ priority: high|medium|low
 ### Creating a New Insight
 
 1. Copy template: `cp ai-docs/templates/insight-template.md ai-docs/current/{task}/insights/{new_insight}.md`
-2. Fill content
+2. Fill content (include `related_files` pointers if code-related)
 3. Update index: `vim ai-docs/.context/insights/{task}.txt`
-4. Commit: `git add ai-docs/ && git commit -m "docs: add insight {title}"`
+4. (Optional) Update `ai-docs/current/{task}/MANIFEST.md` if this changes “current truth”
+5. Commit: `git add ai-docs/ && git commit -m "docs: add insight {title}"`
+
+### Using an Insight to Load Code Context (On Demand)
+
+1. Search / pick an insight from `{task}.txt`
+2. Read the insight markdown
+3. For each `related_files` entry, retrieve a small snippet (don’t load whole scripts):
+   - `rg -n "<rg_pattern>" <path> -C 3`
+4. Only if needed, expand context around the match or open the full file.
 
 ### Session Recovery
 
@@ -143,12 +185,13 @@ priority: high|medium|low
 1. **NO INSIGHT WITHOUT PROPER STRUCTURING FIRST** - If it's worth remembering, structure it immediately
 2. **Hot vs Cold Data** - MANIFEST.md is hot (read every session), insights are cold (load on demand)
 3. **Incremental Loading** - Don't load all insights at start, load when topic is mentioned
+4. **Frequent changes** - Use `supersedes`/`superseded_by` and `status: deprecated` instead of deleting history
 
 ## What This Skill Is NOT
 
 - ❌ NOT the `ai-docs/.context/scripts/` system (JSON-based, shell scripts)
 - ❌ NOT for file-level code indexing (that's separate)
-- ✅ This is for project insights, decisions, and state tracking
+- ✅ This is for project insights, decisions, and state tracking (with optional code pointers)
 
 ## References
 

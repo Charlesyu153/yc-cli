@@ -1,0 +1,13 @@
+# {Task Name} - Key Insight Index
+# Last updated: YYYY-MM-DD
+
+[insight_id]
+Title: Brief title
+Summary: One-liner takeaway
+Keywords: tag1, tag2
+Detail: current/{task}/insights/{insight_id}.md
+Created: YYYY-MM-DD
+Related: {repo-relative path(s)}
+Status: draft|done|todo|deprecated
+Priority: high|medium|low
+
