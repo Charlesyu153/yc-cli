@@ -13,6 +13,9 @@ env/
 .rag/rag.log
 .rag/config.toml    # 每个项目有自己的配置
 
+# Plans (working documents)
+docs/plans/
+
 # IDE
 .vscode/
 .idea/
