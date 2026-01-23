@@ -40,9 +40,10 @@ def index_file(file_path: Path) -> dict:
     # 验证 insight 文件格式
     if file_path.name.endswith(".md") and file_path.parent.name == "insights":
         try:
-            from scripts.validate_insights import main as validate_main
             import subprocess
-            result = subprocess.run(["python", "/home/jacekyu/yc-cli/scripts/validate_insights.py", str(file_path)], capture_output=True, text=True)
+            from .config import BASE_DIR
+            script_path = BASE_DIR / "scripts" / "validate_insights.py"
+            result = subprocess.run(["python", str(script_path), str(file_path)], capture_output=True, text=True)
             if result.returncode != 0:
                 logger.warning(f"Insight file validation failed: {file_path}\n{result.stderr}")
         except Exception as e:
