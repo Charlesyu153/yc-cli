@@ -17,11 +17,21 @@ import sys
 import argparse
 import requests
 import subprocess
+import os
 from pathlib import Path
 from colorama import Fore, Style
 
-# 服务地址
-API_BASE = "http://127.0.0.1:8733"
+# 服务地址 - 从配置系统读取
+def get_api_base():
+    """获取API地址，优先使用环境变量"""
+    try:
+        from rag.config import cfg
+        port = os.getenv("RAG_PORT", str(cfg.port))
+    except (ImportError, AttributeError):
+        port = os.getenv("RAG_PORT", "8733")
+    return f"http://127.0.0.1:{port}"
+
+API_BASE = get_api_base()
 
 # 颜色输出函数
 def print_success(msg):
