@@ -18,9 +18,23 @@ import argparse
 import requests
 import subprocess
 from pathlib import Path
+from colorama import Fore, Style
 
 # 服务地址
 API_BASE = "http://127.0.0.1:8733"
+
+# 颜色输出函数
+def print_success(msg):
+    print(f"{Fore.GREEN}✓ {msg}{Style.RESET_ALL}")
+
+def print_error(msg):
+    print(f"{Fore.RED}✗ {msg}{Style.RESET_ALL}")
+
+def print_warning(msg):
+    print(f"{Fore.YELLOW}⚠️  {msg}{Style.RESET_ALL}")
+
+def print_info(msg):
+    print(f"{Fore.BLUE}ℹ️  {msg}{Style.RESET_ALL}")
 
 
 def cmd_status(args):
@@ -28,29 +42,29 @@ def cmd_status(args):
     try:
         r = requests.get(f"{API_BASE}/health", timeout=2)
         if r.status_code == 200:
-            print("✓ Service is running")
+            print_success("Service is running")
 
             r = requests.get(f"{API_BASE}/api/status")
             data = r.json()
             print(f"  Indexed documents: {data['count']}")
             print(f"  Last updated: {data['last_updated']}")
         else:
-            print("✗ Service is not healthy")
+            print_error("Service is not healthy")
     except requests.exceptions.ConnectionError:
-        print("✗ Service is not running")
-        print("  Start with: ragctl start")
+        print_error("Service is not running")
+        print_info("Start with: ragctl start")
     return 0
 
 
 def cmd_index(args):
     """重建索引"""
-    print("Rebuilding index...")
+    print_info("Rebuilding index...")
     try:
         r = requests.post(f"{API_BASE}/api/index")
         data = r.json()
-        print(f"✓ Indexed {data['count']} files")
+        print_success(f"Indexed {data['count']} files")
     except requests.exceptions.ConnectionError:
-        print("✗ Service is not running")
+        print_error("Service is not running")
         return 1
     return 0
 
@@ -62,21 +76,21 @@ def cmd_search(args):
         results = r.json()
 
         if not results:
-            print("No results found")
+            print_info("No results found")
         else:
-            print(f"Found {len(results)} results:\n")
+            print_info(f"Found {len(results)} results:\n")
             for i, item in enumerate(results, 1):
                 print(f"{i}. [{item['score']}] {item['title']}")
                 print(f"   {item['file_path']}\n")
     except requests.exceptions.ConnectionError:
-        print("✗ Service is not running")
+        print_error("Service is not running")
         return 1
     return 0
 
 
 def cmd_record(args):
     """交互式创建记录"""
-    print("Creating new record (Ctrl+C to cancel)\n")
+    print_info("Creating new record (Ctrl+C to cancel)\n")
 
     try:
         title = input("Title: ")
@@ -103,13 +117,13 @@ def cmd_record(args):
 
         r = requests.post(f"{API_BASE}/api/record", json=payload)
         if r.status_code == 200:
-            print(f"\n✓ Record saved: {r.json()['result']['file_path']}")
+            print_success(f"Record saved: {r.json()['result']['file_path']}")
         else:
-            print(f"\n✗ Failed: {r.text}")
+            print_error(f"Failed: {r.text}")
     except KeyboardInterrupt:
         print("\nCancelled")
     except requests.exceptions.ConnectionError:
-        print("✗ Service is not running")
+        print_error("Service is not running")
         return 1
     return 0
 
@@ -121,11 +135,11 @@ def cmd_export(args):
 
     output = args.output or f"rag-backup-{datetime.now().strftime('%Y%m%d')}.tar.gz"
 
-    print(f"Exporting to {output}...")
+    print_info(f"Exporting to {output}...")
     with tarfile.open(output, "w:gz") as tar:
         tar.add(".rag/", arcname=".rag/")
         tar.add("ai-docs/", arcname="ai-docs/")
-    print(f"✓ Exported to {output}")
+    print_success(f"Exported to {output}")
     return 0
 
 
@@ -133,11 +147,11 @@ def cmd_import(args):
     """导入备份"""
     import tarfile
 
-    print(f"Importing from {args.input}...")
+    print_info(f"Importing from {args.input}...")
     with tarfile.open(args.input, "r:gz") as tar:
         tar.extractall()
-    print("✓ Imported")
-    print("  Run: ragctl index")
+    print_success("Imported")
+    print_info("Run: ragctl index")
     return 0
 
 
@@ -147,7 +161,7 @@ def cmd_logs(args):
 
     log_file = Path(".rag/rag.log")
     if not log_file.exists():
-        print("No log file found")
+        print_info("No log file found")
         return 1
 
     if args.follow:
@@ -162,7 +176,7 @@ def cmd_logs(args):
 
 def cmd_start(args):
     """启动服务"""
-    print("Starting RAG service...")
+    print_info("Starting RAG service...")
     subprocess.run(["python", "-m", "rag.server"])
     return 0
 
@@ -171,11 +185,11 @@ def cmd_stop(args):
     """停止服务"""
     try:
         r = requests.get(f"{API_BASE}/health")
-        print("✗ Stop not implemented yet")
-        print("  Use: pkill -f 'rag.server'")
+        print_error("Stop not implemented yet")
+        print_info("Use: pkill -f 'rag.server'")
         return 1
     except requests.exceptions.ConnectionError:
-        print("✗ Service is not running")
+        print_error("Service is not running")
         return 1
 
 

@@ -28,7 +28,7 @@ def doc_id_for(file_path: Path) -> str:
 
 
 def index_file(file_path: Path) -> dict:
-    """索引单个文件"""
+    """索引单个文件（包含验证）"""
     try:
         content = file_path.read_text()
     except Exception as e:
@@ -36,6 +36,17 @@ def index_file(file_path: Path) -> dict:
         return {"error": str(e)}
 
     metadata, body = parse_frontmatter(content)
+
+    # 验证 insight 文件格式
+    if file_path.name.endswith(".md") and file_path.parent.name == "insights":
+        try:
+            from scripts.validate_insights import main as validate_main
+            import subprocess
+            result = subprocess.run(["python", "/home/jacekyu/yc-cli/scripts/validate_insights.py", str(file_path)], capture_output=True, text=True)
+            if result.returncode != 0:
+                logger.warning(f"Insight file validation failed: {file_path}\n{result.stderr}")
+        except Exception as e:
+            logger.warning(f"Failed to validate insight file: {file_path}: {e}")
 
     # 构建索引内容
     related_files = metadata.get("related_files") or []
@@ -56,6 +67,7 @@ def index_file(file_path: Path) -> dict:
         "file_path": str(file_path),
         "task": file_path.parent.parent.name,
         "created": str(metadata.get("created") or datetime.now().isoformat()),
+        "modified": str(datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()),
         "has_pointers": bool(related_paths),
         "related_paths": related_paths_str,
     }
@@ -74,9 +86,7 @@ def index_file(file_path: Path) -> dict:
 
 
 def index_all():
-    """索引所有文档"""
-    VectorStore.clear()
-
+    """索引所有文档（优化版：增量索引 + 批量处理）"""
     results = []
     docs_dir = cfg.docs_dir
 
@@ -84,20 +94,126 @@ def index_all():
         logger.warning(f"Docs directory not found: {docs_dir}")
         return results
 
+    # 获取当前所有需要索引的文件
+    all_files = []
     for task_dir in docs_dir.iterdir():
         if not task_dir.is_dir():
             continue
-
-        # 索引 MANIFEST.md
         manifest = task_dir / "MANIFEST.md"
         if manifest.exists():
-            results.append(index_file(manifest))
-
-        # 索引 insights/
+            all_files.append(manifest)
         insights_dir = task_dir / "insights"
         if insights_dir.exists():
-            for insight_file in insights_dir.glob("*.md"):
-                results.append(index_file(insight_file))
+            all_files.extend(insights_dir.glob("*.md"))
 
-    logger.info(f"Indexed {len(results)} files")
+    # 获取当前索引中的所有文档 ID 和元数据
+    current_docs = {}
+    try:
+        all_docs = VectorStore.search("", top_k=10000)
+        for doc in all_docs:
+            current_docs[doc["id"]] = doc["metadata"]
+    except Exception as e:
+        logger.warning(f"Failed to get current index status: {e}")
+        # 如果获取索引状态失败，我们就重新索引所有文件
+        docs_to_index = []
+        for file_path in all_files:
+            metadata, body = parse_frontmatter(file_path.read_text())
+            related_files = metadata.get("related_files") or []
+            related_paths = [rf.get("path") for rf in related_files if isinstance(rf, dict) and rf.get("path")]
+            related_paths_str = ",".join(related_paths)
+            index_content = f"{metadata.get('title', '')}\n\nPointers: {related_paths_str}\n\n{body[:8000]}"
+            doc_id = doc_id_for(file_path)
+            # 准备元数据
+            clean_metadata = {
+                "title": str(metadata.get('title', '')),
+                "type": str(metadata.get('type', '')),
+                "status": str(metadata.get('status', '')),
+                "priority": str(metadata.get('priority', '')),
+                "file_path": str(file_path),
+                "task": file_path.parent.parent.name,
+                "created": str(metadata.get("created") or datetime.now().isoformat()),
+                "modified": str(datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()),
+                "has_pointers": bool(related_paths),
+                "related_paths": related_paths_str,
+            }
+            tags = metadata.get("tags")
+            if tags:
+                if isinstance(tags, list):
+                    clean_metadata["tags"] = ",".join(str(t) for t in tags)
+                else:
+                    clean_metadata["tags"] = str(tags)
+            docs_to_index.append({"id": doc_id, "content": index_content, "metadata": clean_metadata})
+        VectorStore.clear()
+        VectorStore.upsert_batch(docs_to_index)
+        logger.info(f"Indexed {len(docs_to_index)} files (full reindex)")
+        return [{"id": doc["id"], "file": doc["metadata"]["file_path"]} for doc in docs_to_index]
+
+    # 比较当前文件和索引中的文档
+    files_to_index = []
+    files_to_delete = []
+
+    # 检查需要索引的文件
+    for file_path in all_files:
+        doc_id = doc_id_for(file_path)
+        if doc_id not in current_docs:
+            files_to_index.append(file_path)
+        else:
+            # 检查文件是否已修改
+            file_modified = datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()
+            index_modified = current_docs[doc_id].get("modified", "")
+            if file_modified > index_modified:
+                files_to_index.append(file_path)
+
+    # 检查需要删除的文档
+    for doc_id in current_docs:
+        file_path = cfg.docs_dir / doc_id
+        if not file_path.exists():
+            files_to_delete.append(doc_id)
+
+    # 执行索引和删除操作
+    if files_to_index:
+        docs_to_index = []
+        for file_path in files_to_index:
+            try:
+                content = file_path.read_text()
+            except Exception as e:
+                logger.warning(f"Failed to read {file_path}: {e}")
+                results.append({"error": str(e)})
+                continue
+            metadata, body = parse_frontmatter(content)
+            related_files = metadata.get("related_files") or []
+            related_paths = [rf.get("path") for rf in related_files if isinstance(rf, dict) and rf.get("path")]
+            related_paths_str = ",".join(related_paths)
+            index_content = f"{metadata.get('title', '')}\n\nPointers: {related_paths_str}\n\n{body[:8000]}"
+            doc_id = doc_id_for(file_path)
+            # 准备元数据
+            clean_metadata = {
+                "title": str(metadata.get('title', '')),
+                "type": str(metadata.get('type', '')),
+                "status": str(metadata.get('status', '')),
+                "priority": str(metadata.get('priority', '')),
+                "file_path": str(file_path),
+                "task": file_path.parent.parent.name,
+                "created": str(metadata.get("created") or datetime.now().isoformat()),
+                "modified": str(datetime.fromtimestamp(file_path.stat().st_mtime).isoformat()),
+                "has_pointers": bool(related_paths),
+                "related_paths": related_paths_str,
+            }
+            tags = metadata.get("tags")
+            if tags:
+                if isinstance(tags, list):
+                    clean_metadata["tags"] = ",".join(str(t) for t in tags)
+                else:
+                    clean_metadata["tags"] = str(tags)
+            docs_to_index.append({"id": doc_id, "content": index_content, "metadata": clean_metadata})
+        VectorStore.upsert_batch(docs_to_index)
+        for doc in docs_to_index:
+            results.append({"id": doc["id"], "file": doc["metadata"]["file_path"]})
+
+    if files_to_delete:
+        VectorStore.delete_batch(files_to_delete)
+        for doc_id in files_to_delete:
+            logger.debug(f"Deleted: {doc_id}")
+
+    logger.info(f"Indexed {len(files_to_index)} files, deleted {len(files_to_delete)} files")
     return results

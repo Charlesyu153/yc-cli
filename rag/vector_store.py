@@ -39,17 +39,41 @@ class VectorStore:
         )
 
     @classmethod
+    def upsert_batch(cls, docs: list[dict]):
+        """批量添加/更新记录（提高效率）"""
+        if not docs:
+            return
+        ids = [doc["id"] for doc in docs]
+        contents = [doc["content"] for doc in docs]
+        metadatas = [doc["metadata"] for doc in docs]
+        embeddings = Embeddings.embed_batch_with_cache(contents)
+        cls.get_collection().upsert(
+            ids=ids,
+            embeddings=embeddings,
+            documents=contents,
+            metadatas=metadatas
+        )
+
+    @classmethod
     def delete(cls, id: str):
         """删除单条记录（用于文件删除/重命名）"""
         cls.get_collection().delete(ids=[id])
 
     @classmethod
-    def search(cls, query: str, top_k: int = 5) -> list[dict]:
-        """语义搜索"""
+    def delete_batch(cls, ids: list[str]):
+        """批量删除记录（提高效率）"""
+        if not ids:
+            return
+        cls.get_collection().delete(ids=ids)
+
+    @classmethod
+    def search(cls, query: str, top_k: int = 5, where: dict = None) -> list[dict]:
+        """语义搜索（支持元数据过滤）"""
         embedding = Embeddings.embed_with_cache(query)
         results = cls.get_collection().query(
             query_embeddings=[embedding],
-            n_results=top_k
+            n_results=top_k,
+            where=where
         )
 
         return [
@@ -79,3 +103,14 @@ class VectorStore:
             "count": coll.count(),
             "last_updated": datetime.now().isoformat()
         }
+
+    @classmethod
+    def get_all_ids(cls) -> list[str]:
+        """获取所有文档的 ID（用于增量索引）"""
+        try:
+            # 使用一个非常通用的查询来获取所有文档
+            all_docs = cls.search("", top_k=10000)
+            return [doc["id"] for doc in all_docs]
+        except Exception as e:
+            logger.warning(f"Failed to get all document IDs: {e}")
+            return []

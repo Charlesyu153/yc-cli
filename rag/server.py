@@ -22,42 +22,6 @@ app = FastAPI(title="YC-CLI RAG Service")
 _watcher = None
 
 
-class ErrorResponse(BaseModel):
-    error: dict
-
-
-@app.exception_handler(Exception)
-async def global_exception_handler(request, exc):
-    logger.error(f"Unhandled exception: {exc}", exc_info=True)
-    return {
-        "error": {
-            "code": "INTERNAL_ERROR",
-            "message": str(exc)
-        }
-    }
-
-
-@app.on_event("startup")
-def startup_event():
-    global _watcher
-
-    # 检查模型
-    try:
-        from .embeddings import Embeddings
-        Embeddings.get_model()
-        logger.info("Embedding model loaded")
-    except Exception as e:
-        logger.error(f"Failed to load model: {e}")
-        raise RuntimeError(f"Failed to load embedding model: {e}")
-
-    # 启动文件监听
-    if cfg.auto_index:
-        _watcher = start_watcher()
-        logger.info("File watcher started")
-
-    logger.info(f"RAG service started on port {cfg.port}")
-
-
 @app.on_event("shutdown")
 def shutdown_event():
     if _watcher:
@@ -155,7 +119,7 @@ def record(req: RecordRequest) -> dict:
 
 
 @app.get("/api/status")
-def status() -> dict:
+def get_status() -> dict:
     """索引状态"""
     return VectorStore.status()
 

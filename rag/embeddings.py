@@ -21,6 +21,7 @@ class Embeddings:
 
     @classmethod
     def embed(cls, texts: list[str]) -> list[list[float]]:
+        """批量嵌入（提高效率）"""
         return cls.get_model().encode(texts, convert_to_tensor=False).tolist()
 
     @classmethod
@@ -37,3 +38,32 @@ class Embeddings:
         with open(cache_file, "wb") as f:
             pickle.dump(embedding, f)
         return embedding
+
+    @classmethod
+    def embed_batch_with_cache(cls, texts: list[str]) -> list[list[float]]:
+        """批量带缓存的嵌入生成（提高效率）"""
+        embeddings = []
+        uncached_texts = []
+        uncached_indices = []
+
+        for i, text in enumerate(texts):
+            cache_key = hashlib.md5(text.encode()).hexdigest()
+            cache_file = RAG_CACHE_DIR / f"{cache_key}.pkl"
+            if cache_file.exists():
+                with open(cache_file, "rb") as f:
+                    embeddings.append(pickle.load(f))
+            else:
+                uncached_texts.append(text)
+                uncached_indices.append(i)
+
+        if uncached_texts:
+            uncached_embeddings = cls.embed(uncached_texts)
+            for i, j in enumerate(uncached_indices):
+                embeddings.insert(j, uncached_embeddings[i])
+                # 缓存嵌入
+                cache_key = hashlib.md5(uncached_texts[i].encode()).hexdigest()
+                cache_file = RAG_CACHE_DIR / f"{cache_key}.pkl"
+                with open(cache_file, "wb") as f:
+                    pickle.dump(uncached_embeddings[i], f)
+
+        return embeddings
