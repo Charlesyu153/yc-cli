@@ -11,7 +11,12 @@ env/
 .rag/cache/
 .rag/chroma/
 .rag/rag.log
+.rag/*.log
+.rag/server.log
 .rag/config.toml    # 每个项目有自己的配置
+
+# Local symlinks (do not commit)
+ai-docs/current/current
 
 # Plans (working documents)
 docs/plans/

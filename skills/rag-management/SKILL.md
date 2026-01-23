@@ -50,27 +50,27 @@ rag/
 
 ```bash
 # Status
-ragctl status
+python -m rag.ragctl status
 
 # Rebuild index
-ragctl index
+python -m rag.ragctl index
 
 # Search
-ragctl search "decision"
+python -m rag.ragctl search "decision"
 
 # Create record
-ragctl record
+python -m rag.ragctl record
 
 # Export/Import
-ragctl export backup.tar.gz
-ragctl import backup.tar.gz
+python -m rag.ragctl export backup.tar.gz
+python -m rag.ragctl import backup.tar.gz
 
 # Logs
-ragctl logs -f
+python -m rag.ragctl logs -f
 
 # Start/Stop service
-ragctl start
-ragctl stop
+python -m rag.ragctl start
+python -m rag.ragctl stop
 ```
 
 ### 2. Python API
@@ -174,20 +174,20 @@ file = ".rag/rag.log"
 ### Creating a New Insight
 
 1. Create insight file: `ai-docs/current/{task}/insights/{insight_id}.md`
-2. Run index: `ragctl index`
-3. Verify: `ragctl search "keyword"`
+2. Run index: `python -m rag.ragctl index`
+3. Verify: `python -m rag.ragctl search "keyword"`
 
 ### Generating Records
 
-1. Use CLI: `ragctl record`
+1. Use CLI: `python -m rag.ragctl record`
 2. Fill in the required fields
 3. Review generated file: `ai-docs/current/{task}/insights/{insight_id}.md`
 
 ### Backing Up Data
 
-1. Export: `ragctl export backup.tar.gz`
-2. Import: `ragctl import backup.tar.gz`
-3. Rebuild index: `ragctl index`
+1. Export: `python -m rag.ragctl export backup.tar.gz`
+2. Import: `python -m rag.ragctl import backup.tar.gz`
+3. Rebuild index: `python -m rag.ragctl index`
 
 ## Rules
 
@@ -198,9 +198,9 @@ file = ".rag/rag.log"
 
 ## What This Skill Is NOT
 
-- ❌ NOT for indexing entire codebase
-- ❌ NOT for file-level code indexing
-- ✅ This is for project insights, decisions, and state tracking (with semantic search)
+- NOT for indexing entire codebase
+- NOT for file-level code indexing
+- This is for project insights, decisions, and state tracking (with semantic search)
 
 ## References
 

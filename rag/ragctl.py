@@ -35,16 +35,16 @@ API_BASE = get_api_base()
 
 # 颜色输出函数
 def print_success(msg):
-    print(f"{Fore.GREEN}✓ {msg}{Style.RESET_ALL}")
+    print(f"{Fore.GREEN}[OK] {msg}{Style.RESET_ALL}")
 
 def print_error(msg):
-    print(f"{Fore.RED}✗ {msg}{Style.RESET_ALL}")
+    print(f"{Fore.RED}[ERR] {msg}{Style.RESET_ALL}")
 
 def print_warning(msg):
-    print(f"{Fore.YELLOW}⚠️  {msg}{Style.RESET_ALL}")
+    print(f"{Fore.YELLOW}[WARN] {msg}{Style.RESET_ALL}")
 
 def print_info(msg):
-    print(f"{Fore.BLUE}ℹ️  {msg}{Style.RESET_ALL}")
+    print(f"{Fore.BLUE}[INFO] {msg}{Style.RESET_ALL}")
 
 
 def cmd_status(args):

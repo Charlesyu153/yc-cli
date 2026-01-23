@@ -189,9 +189,9 @@ Suggested retrieval command:
 
 ## What This Skill Is NOT
 
-- ❌ NOT the `ai-docs/.context/scripts/` system (JSON-based, shell scripts)
-- ❌ NOT for file-level code indexing (that's separate)
-- ✅ This is for project insights, decisions, and state tracking (with optional code pointers)
+- NOT the `ai-docs/.context/scripts/` system (JSON-based, shell scripts)
+- NOT for file-level code indexing (that's separate)
+- This is for project insights, decisions, and state tracking (with optional code pointers)
 
 ## References
 

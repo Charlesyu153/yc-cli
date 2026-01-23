@@ -1,0 +1,14 @@
+[server]
+host = "127.0.0.1"
+port = 8733
+
+[docs]
+base_dir = "ai-docs/current"
+auto_index = true
+
+[task]
+name = "your-project"
+
+[log]
+level = "INFO"
+file = ".rag/rag.log"

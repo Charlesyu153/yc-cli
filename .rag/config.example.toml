@@ -1,0 +1,17 @@
+[server]
+host = "127.0.0.1"
+port = 8733
+
+[docs]
+# Use a relative path when running yc-cli inside a project.
+# Example: run `python -m rag.server` from your project root.
+base_dir = "ai-docs/current"
+auto_index = true
+
+[task]
+# Project/task name used in record paths
+name = "your-project"
+
+[log]
+level = "INFO"
+file = ".rag/rag.log"

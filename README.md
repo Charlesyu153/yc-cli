@@ -22,13 +22,26 @@ YC-CLI RAG 是一个轻量级的知识管理系统，帮助你通过语义搜索
 git clone <repository-url>
 cd yc-cli
 
-# 安装依赖
-pip install -r requirements.txt
+# 创建 mamba 环境（推荐）
+mamba env create -f environment.yml
+mamba activate rag_cli
+
+# 或更新环境
+mamba env update -f environment.yml
+mamba activate rag_cli
 ```
 
 ### 2. 配置
 
-配置文件位于 `.rag/config.toml`，默认配置已可使用：
+配置文件位于 `.rag/config.toml`。
+
+注意：该文件通常是**每台机器/每个项目的本地配置**，建议从示例文件复制生成（示例文件会被提交，实际配置默认不提交）。
+
+```bash
+cp .rag/config.example.toml .rag/config.toml
+```
+
+默认示例配置如下（按需修改 `base_dir` 与 `task.name`）：
 
 ```toml
 [server]
@@ -209,6 +222,36 @@ python -m rag.ragctl start
 # 在另一个终端测试
 curl "http://localhost:8733/api/search?q=决策&top_k=5"
 ```
+
+---
+
+## 新机器 + 新项目（推荐工作流）
+
+目标：让多个工具（Claude Code / Cursor / Codex 等）都通过同一套 RAG 服务管理新项目的 `ai-docs` 上下文。
+
+### 1) 新机器准备（一次性）
+
+```bash
+git clone <repository-url> ~/yc-cli
+cd ~/yc-cli
+mamba env create -f environment.yml
+mamba activate rag_cli
+```
+
+### 2) 新项目接入（每个新项目一次）
+
+本仓库提供一个“新项目 addon 模板”，位于 `addons/rag-project-addon/`。
+
+将其内容复制到新项目根目录后：
+- 填好 `.rag/config.toml`（相对路径推荐）
+- 启动服务并索引
+
+（该 addon 不包含任何真实项目数据，只包含必要的配置/脚本/Skill 模板。）
+
+### 3) 注意事项
+
+- RAG 只索引文档，不索引代码（代码引用用指针/related_files）。
+- 不要把 `.rag/chroma/`、`.rag/cache/`、`.rag/*.log`、以及任何本机 symlink 提交到 GitHub。
 
 ---
 

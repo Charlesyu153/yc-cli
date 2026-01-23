@@ -1,0 +1,5 @@
+# yc-cli RAG artifacts (do not commit)
+.rag/cache/
+.rag/chroma/
+.rag/*.log
+.rag/config.toml
