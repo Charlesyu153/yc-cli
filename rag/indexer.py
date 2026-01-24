@@ -105,7 +105,7 @@ def index_all():
             all_files.append(manifest)
         insights_dir = task_dir / "insights"
         if insights_dir.exists():
-            all_files.extend(insights_dir.glob("*.md"))
+            all_files.extend(insights_dir.rglob("*.md"))
 
     # 获取当前索引中的所有文档 ID 和元数据
     current_docs = {}
